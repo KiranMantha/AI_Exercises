@@ -4,9 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "npx @modelcontextprotocol/inspector node server.js",
-    "ingest": "rm -f docs.db && node ingest.js",
-    "test": "node test-client.js"
+    "start": "npx @modelcontextprotocol/inspector node src/server.js",
+    "ingest": "rm -f src/docs.db && node src/ingest.js",
+    "test": "node src/test-client.js"
   },
   "keywords": [],
   "author": "",

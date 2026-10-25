@@ -1,9 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { db, embeddings, DIM } from "./rag.js";
 
-const DOCS_DIR = process.env.DOCS_DIR ?? "docs";
+const DOCS_DIR =
+  process.env.DOCS_DIR ??
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "docs");
 
 const splitter = new RecursiveCharacterTextSplitter({
   chunkSize: 800,

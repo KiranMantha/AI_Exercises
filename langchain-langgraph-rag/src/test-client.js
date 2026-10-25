@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -13,7 +14,7 @@ if (queries.length === 0) {
 async function main() {
   const transport = new StdioClientTransport({
     command: "node",
-    args: ["server.js"],
+    args: [fileURLToPath(new URL("./server.js", import.meta.url))],
     env: { ...process.env },
     stderr: "inherit", // show the server's startup log
   });
