@@ -1,3 +1,5 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { embeddings } from "./embeddings.js";
@@ -7,13 +9,10 @@ import {
   AutoModelForSequenceClassification,
 } from "@huggingface/transformers";
 
-export const DIM = 384; // all-MiniLM-L6-v2
-export const DB_PATH = process.env.DB_PATH ?? "docs.db";
+const DIM = 384; // all-MiniLM-L6-v2
+const SRC_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DB_PATH = process.env.DB_PATH ?? path.join(SRC_DIR, "docs.db");
 const RRF_K = 60;
-
-export const db = new Database(DB_PATH);
-sqliteVec.load(db);
-
 const CANDIDATE_MULTIPLIER = 3;
 const STOPWORDS = new Set([
   "a",
@@ -47,12 +46,14 @@ const STOPWORDS = new Set([
   "why",
   "with",
 ]);
-
 // The reranker returns logits. Keep results within RERANK_MARGIN of the best
 // score for the query, and drop anything below RERANK_FLOOR.
 const RERANK_MARGIN = 3;
 const RERANK_FLOOR = 0; // calibrate this with the steps below
 const RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2";
+
+const db = new Database(DB_PATH);
+sqliteVec.load(db);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS chunks (
@@ -110,7 +111,7 @@ async function rerankScores(query, docs) {
 }
 
 // Turn free text into a safe FTS5 query: quote each term, OR them together.
-export function toFtsQuery(query) {
+function toFtsQuery(query) {
   const terms = query
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s_-]/gu, " ")
@@ -205,9 +206,9 @@ const retrievalGraph = new StateGraph(RetrievalState)
   .addEdge("rerank", END)
   .compile();
 
-export async function searchDocs(query, maxResults = 5) {
+async function searchDocs(query, maxResults = 5) {
   const out = await retrievalGraph.invoke({ query, maxResults });
   return out.results;
 }
 
-export { embeddings };
+export { embeddings, toFtsQuery, db, DIM, DB_PATH, searchDocs };
