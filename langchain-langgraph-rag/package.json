@@ -1,0 +1,31 @@
+{
+  "name": "langchain-langgraph-rag",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "npx @modelcontextprotocol/inspector node server.js",
+    "ingest": "rm -f docs.db && node ingest.js",
+    "test": "node test-client.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.1",
+    "@langchain/langgraph": "^1.5.2",
+    "@langchain/textsplitters": "^1.0.2",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "better-sqlite3": "^13.0.3",
+    "sqlite-vec": "^0.1.9",
+    "zod": "^4.6.7"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "onnxruntime-node",
+      "protobufjs"
+    ]
+  }
+}
