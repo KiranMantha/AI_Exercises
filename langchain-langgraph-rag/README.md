@@ -33,7 +33,7 @@ flowchart TD
         end
 
         PDF --> PR
-        subgraph PR[Per-page router · src/pdf/graph.js]
+        subgraph PR[Per-page router · src/processPdf/graph.js]
             P1{Per page:<br/>text layer under 50 chars?<br/>images cover 0.2 of page or more?<br/>formula glyph ratio 0.02 or more?}
             P1 -- no --> TX[Text agent<br/>unpdf text layer]
             P1 -- yes --> OC[OCR agent<br/>render page, call Unlimited-OCR<br/>falls back to text layer on error]

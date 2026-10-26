@@ -1,5 +1,5 @@
 import path from "node:path";
-import { parsePdf } from "../../pdf/graph.js";
+import { parsePdf } from "../../processPdf/graph.js";
 
 export default {
   name: "pdf",
