@@ -11,6 +11,10 @@ export default {
     const { pages, routing } = await parsePdf(filePath);
     for (const r of routing)
       console.error(`${file} p${r.page}: ${r.route} (${r.reason})`);
-    return pages.map((p) => ({ text: p.text, page: p.page, via: p.agent }));
+    return pages.map((parsedPage) => ({
+      text: parsedPage.text,
+      page: parsedPage.page,
+      via: parsedPage.agent,
+    }));
   },
 };

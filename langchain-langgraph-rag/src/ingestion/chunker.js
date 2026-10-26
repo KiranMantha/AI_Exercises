@@ -122,8 +122,8 @@ const splitter = new RecursiveCharacterTextSplitter({
  * Returns [{ text, section, page, pageEnd, via }].
  */
 export async function chunkDocument(sections) {
-  const blocks = sections.flatMap((s) =>
-    parseBlocks(s.text, { page: s.page ?? null, via: s.via ?? null }),
+  const blocks = sections.flatMap((section) =>
+    parseBlocks(section.text, { page: section.page ?? null, via: section.via ?? null }),
   );
 
   const chunks = [];
@@ -132,19 +132,19 @@ export async function chunkDocument(sections) {
   let size = 0;
   let startPath = []; // heading path when the chunk started
 
-  const pathTitles = () => headingPath.map((h) => h.title);
+  const pathTitles = () => headingPath.map((heading) => heading.title);
 
   const emit = (bodyBlocks, body, path) => {
     const startsWithHeading = bodyBlocks[0]?.type === "heading";
     const ancestors = startsWithHeading ? path.slice(0, -1) : path;
     const prefix = ancestors.length ? `${ancestors.join(" > ")}\n\n` : "";
-    const pages = bodyBlocks.map((b) => b.page).filter((p) => p != null);
+    const pages = bodyBlocks.map((block) => block.page).filter((page) => page != null);
     chunks.push({
       text: prefix + body,
       section: path.join(" > ") || null,
       page: pages[0] ?? null,
       pageEnd: pages.at(-1) ?? null,
-      via: [...new Set(bodyBlocks.map((b) => b.via).filter(Boolean))].join("+") || null,
+      via: [...new Set(bodyBlocks.map((block) => block.via).filter(Boolean))].join("+") || null,
     });
   };
 
@@ -153,7 +153,7 @@ export async function chunkDocument(sections) {
   const flush = ({ final = false } = {}) => {
     if (!parts.length) return;
     const carry = !final && parts.at(-1).type === "heading" ? parts.pop() : null;
-    if (parts.length) emit(parts, parts.map((b) => b.text).join("\n\n"), startPath);
+    if (parts.length) emit(parts, parts.map((block) => block.text).join("\n\n"), startPath);
     parts = carry ? [carry] : [];
     size = carry ? carry.text.length : 0;
     startPath = pathTitles();
@@ -183,11 +183,11 @@ export async function chunkDocument(sections) {
       size = 0;
       const pieces =
         block.type === "paragraph" ? await splitter.splitText(block.text) : splitOversized(block);
-      pieces.forEach((piece, i) => {
-        const withLead = i === 0 && lead.length;
+      pieces.forEach((piece, index) => {
+        const withLead = index === 0 && lead.length;
         emit(
           withLead ? [...lead, block] : [block],
-          withLead ? `${lead.map((b) => b.text).join("\n\n")}\n\n${piece}` : piece,
+          withLead ? `${lead.map((block) => block.text).join("\n\n")}\n\n${piece}` : piece,
           pathTitles(),
         );
       });
@@ -198,5 +198,5 @@ export async function chunkDocument(sections) {
     add(block);
   }
   flush({ final: true });
-  return chunks.filter((c) => c.text.trim());
+  return chunks.filter((chunk) => chunk.text.trim());
 }

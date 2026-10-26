@@ -12,10 +12,10 @@ const RENDER_SCALE = Number(process.env.PDF_RENDER_SCALE ?? 2);
 const OCR_ENABLED = process.env.OCR_ENABLED !== "false";
 
 const PdfState = Annotation.Root({
-  path: Annotation({ reducer: (_, b) => b, default: () => "" }),
-  pages: Annotation({ reducer: (_, b) => b, default: () => [] }),
-  extracted: Annotation({ reducer: (a, b) => a.concat(b), default: () => [] }),
-  result: Annotation({ reducer: (_, b) => b, default: () => [] }),
+  path: Annotation({ reducer: (_previous, next) => next, default: () => "" }),
+  pages: Annotation({ reducer: (_previous, next) => next, default: () => [] }),
+  extracted: Annotation({ reducer: (existing, incoming) => existing.concat(incoming), default: () => [] }),
+  result: Annotation({ reducer: (_previous, next) => next, default: () => [] }),
 });
 
 const openPdf = (path) =>
@@ -49,7 +49,10 @@ const classifyNode = async (state) => {
 // routed to it. An agent with no pages is never invoked.
 const routePages = (state) => {
   const sends = ["text", "ocr"]
-    .map((agent) => [agent, state.pages.filter((p) => p.route === agent)])
+    .map((agent) => [
+      agent,
+      state.pages.filter((pageInfo) => pageInfo.route === agent),
+    ])
     .filter(([, pages]) => pages.length > 0)
     .map(([agent, pages]) => new Send(agent, { path: state.path, pages }));
   return sends.length ? sends : "merge";
@@ -57,10 +60,10 @@ const routePages = (state) => {
 
 // Both agents receive only their own pages as `state.pages`.
 const textAgent = (state) => ({
-  extracted: state.pages.map((p) => ({
-    page: p.page,
+  extracted: state.pages.map((pageInfo) => ({
+    page: pageInfo.page,
     agent: "text",
-    text: p.layer,
+    text: pageInfo.layer,
   })),
 });
 
@@ -70,10 +73,10 @@ const ocrAgent = async (state) => {
   if (!OCR_ENABLED) {
     console.error(`OCR disabled: using text layer for ${targets.length} page(s)`);
     return {
-      extracted: targets.map((p) => ({
-        page: p.page,
+      extracted: targets.map((pageInfo) => ({
+        page: pageInfo.page,
         agent: "text-fallback",
-        text: p.layer,
+        text: pageInfo.layer,
       })),
     };
   }
@@ -98,7 +101,7 @@ const ocrAgent = async (state) => {
 };
 
 const mergeNode = (state) => ({
-  result: [...state.extracted].sort((a, b) => a.page - b.page),
+  result: [...state.extracted].sort((first, second) => first.page - second.page),
 });
 
 const pdfGraph = new StateGraph(PdfState)

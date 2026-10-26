@@ -12,14 +12,14 @@ const FORCE = process.argv.includes("--force");
 
 const files = fs
   .readdirSync(DOCS_DIR, { withFileTypes: true })
-  .filter((e) => e.isFile())
-  .map((e) => e.name);
+  .filter((entry) => entry.isFile())
+  .map((entry) => entry.name);
 
 const known = new Map(
   db
     .prepare("SELECT doc, hash, pipeline_version FROM documents")
     .all()
-    .map((d) => [d.doc, d]),
+    .map((document) => [document.doc, document]),
 );
 
 const oldChunks = db.prepare("SELECT id, text FROM chunks WHERE doc = ?");
@@ -68,11 +68,11 @@ const replaceDocument = db.transaction((doc, hash, rows, vectors) => {
     count: rows.length,
     at: new Date().toISOString(),
   });
-  rows.forEach((row, i) => {
+  rows.forEach((row, index) => {
     const { lastInsertRowid } = insertChunk.run({ ...row, doc });
     ftsInsert.run(lastInsertRowid, row.text);
     // vec_chunks requires integer rowids.
-    insertVec.run(BigInt(lastInsertRowid), new Float32Array(vectors[i]));
+    insertVec.run(BigInt(lastInsertRowid), new Float32Array(vectors[index]));
   });
 });
 
@@ -114,7 +114,7 @@ for (const file of files) {
     continue;
   }
 
-  const vectors = await embeddings.embedDocuments(rows.map((r) => r.text));
+  const vectors = await embeddings.embedDocuments(rows.map((row) => row.text));
   replaceDocument(file, hash, rows, vectors);
   previous ? counts.updated++ : counts.added++;
   console.error(`${previous ? "updated  " : "added    "} ${file} (${rows.length} chunks)`);

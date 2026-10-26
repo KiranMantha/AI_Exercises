@@ -10,12 +10,12 @@ import { routeCache, routeKey } from "./routeCache.js";
 export const PIPELINE_VERSION = "2";
 
 const IngestState = Annotation.Root({
-  filePath: Annotation({ reducer: (_, b) => b, default: () => "" }),
+  filePath: Annotation({ reducer: (_previous, next) => next, default: () => "" }),
   // What agents return: readable units of a document, [{ text, page?, via? }].
-  sections: Annotation({ reducer: (_, b) => b, default: () => [] }),
+  sections: Annotation({ reducer: (_previous, next) => next, default: () => [] }),
   // "ok", or why nothing was produced: "failed" | "unsupported".
-  status: Annotation({ reducer: (_, b) => b, default: () => "ok" }),
-  rows: Annotation({ reducer: (_, b) => b, default: () => [] }),
+  status: Annotation({ reducer: (_previous, next) => next, default: () => "ok" }),
+  rows: Annotation({ reducer: (_previous, next) => next, default: () => [] }),
 });
 
 const agents = await loadAgents();
@@ -27,7 +27,7 @@ const agents = await loadAgents();
 // are never cached.
 async function routeDocument(state) {
   const ext = path.extname(state.filePath).toLowerCase();
-  const matches = agents.filter((a) => a.accepts.includes(ext));
+  const matches = agents.filter((agent) => agent.accepts.includes(ext));
   if (matches.length === 1) return matches[0].name;
 
   const candidates = matches.length ? matches : agents;
@@ -68,14 +68,14 @@ const skipNode = (state) => {
 const chunkNode = async (state) => {
   const doc = path.basename(state.filePath);
   const chunks = await chunkDocument(state.sections);
-  const rows = chunks.map((c) => ({
+  const rows = chunks.map((chunk) => ({
     doc,
-    source: citation(doc, c.page, c.pageEnd),
-    page: c.page,
-    pageEnd: c.pageEnd,
-    section: c.section,
-    via: c.via,
-    text: c.text,
+    source: citation(doc, chunk.page, chunk.pageEnd),
+    page: chunk.page,
+    pageEnd: chunk.pageEnd,
+    section: chunk.section,
+    via: chunk.via,
+    text: chunk.text,
   }));
   return { rows };
 };
@@ -89,7 +89,7 @@ const graph = new StateGraph(IngestState).addNode("skip", skipNode);
 for (const agent of agents) graph.addNode(agent.name, agentNode(agent));
 graph.addNode("chunk", chunkNode);
 
-const agentNames = agents.map((a) => a.name);
+const agentNames = agents.map((agent) => agent.name);
 graph.addConditionalEdges(START, routeDocument, [...agentNames, "skip"]);
 for (const name of [...agentNames, "skip"]) graph.addEdge(name, "chunk");
 graph.addEdge("chunk", END);

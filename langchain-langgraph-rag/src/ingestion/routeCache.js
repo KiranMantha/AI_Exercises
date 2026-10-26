@@ -8,7 +8,7 @@ import { db } from "../rag.js";
 export function routeKey(ext, candidates) {
   return crypto
     .createHash("sha256")
-    .update(JSON.stringify([ext, candidates.map((a) => [a.name, a.description])]))
+    .update(JSON.stringify([ext, candidates.map((agent) => [agent.name, agent.description])]))
     .digest("hex");
 }
 

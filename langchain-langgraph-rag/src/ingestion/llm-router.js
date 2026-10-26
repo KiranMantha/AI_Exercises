@@ -24,7 +24,7 @@ function sampleOf(filePath) {
 export async function chooseAgentWithLLM(filePath, agents) {
   if (!BASE_URL || !MODEL)
     throw new Error("ROUTER_BASE_URL and ROUTER_MODEL must both be set");
-  const names = [...agents.map((a) => a.name), "none"];
+  const names = [...agents.map((agent) => agent.name), "none"];
 
   const res = await fetch(`${BASE_URL}/chat/completions`, {
     method: "POST",
@@ -46,7 +46,7 @@ export async function chooseAgentWithLLM(filePath, agents) {
             `Reply with JSON only: {"agent": <one of ${JSON.stringify(names)}>, "reason": <short>}.`,
             "",
             "Agents:",
-            ...agents.map((a) => `- ${a.name}: ${a.description}`),
+            ...agents.map((agent) => `- ${agent.name}: ${agent.description}`),
             "",
             `File: ${path.basename(filePath)}`,
             `Size: ${fs.statSync(filePath).size} bytes`,

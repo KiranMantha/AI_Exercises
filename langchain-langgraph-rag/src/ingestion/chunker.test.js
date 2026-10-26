@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { chunkDocument } from "./chunker.js";
 
-const texts = (chunks) => chunks.map((c) => c.text);
+const texts = (chunks) => chunks.map((chunk) => chunk.text);
 
 test("heading path is attached and nested sections stay under their parent", async () => {
   const chunks = await chunkDocument([
     { text: "# Billing\n\nIntro text that is long enough to stand alone as its own paragraph, padding it out well past the minimum chunk size so the next heading starts a new chunk.\n\n## Refunds\n\nRefunds take five days." },
   ]);
-  const refund = chunks.find((c) => c.text.includes("Refunds take"));
+  const refund = chunks.find((chunk) => chunk.text.includes("Refunds take"));
   assert.equal(refund.section, "Billing > Refunds");
   assert.match(refund.text, /^Billing\n\n## Refunds/);
 });
@@ -16,16 +16,16 @@ test("heading path is attached and nested sections stay under their parent", asy
 test("a table is never split mid-way when it fits", async () => {
   const table = "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |";
   const chunks = await chunkDocument([{ text: `Before.\n\n${table}\n\nAfter.` }]);
-  assert.equal(chunks.filter((c) => c.text.includes(table)).length, 1);
+  assert.equal(chunks.filter((chunk) => chunk.text.includes(table)).length, 1);
 });
 
 test("an oversized table is split by rows and repeats its header", async () => {
-  const rows = Array.from({ length: 80 }, (_, i) => `| row${i} | value${i} |`);
+  const rows = Array.from({ length: 80 }, (_unused, index) => `| row${index} | value${index} |`);
   const table = ["| name | value |", "|---|---|", ...rows].join("\n");
   const chunks = await chunkDocument([{ text: table }]);
   assert.ok(chunks.length > 1);
-  for (const c of chunks) assert.ok(c.text.startsWith("| name | value |\n|---|---|"));
-  const seen = chunks.flatMap((c) => c.text.match(/row\d+/g));
+  for (const chunk of chunks) assert.ok(chunk.text.startsWith("| name | value |\n|---|---|"));
+  const seen = chunks.flatMap((chunk) => chunk.text.match(/row\d+/g));
   assert.equal(seen.length, 80);
 });
 
@@ -33,8 +33,8 @@ test("display math and code fences stay whole", async () => {
   const math = "$$\nE = mc^2 \\\\\n a^2 + b^2 = c^2\n$$";
   const code = "```js\nconst x = 1;\n\nconst y = 2;\n```";
   const chunks = await chunkDocument([{ text: `Intro.\n\n${math}\n\n${code}` }]);
-  assert.ok(texts(chunks).some((t) => t.includes(math)));
-  assert.ok(texts(chunks).some((t) => t.includes(code)));
+  assert.ok(texts(chunks).some((text) => text.includes(math)));
+  assert.ok(texts(chunks).some((text) => text.includes(code)));
 });
 
 test("a heading is never stranded at the end of a chunk", async () => {
@@ -42,8 +42,8 @@ test("a heading is never stranded at the end of a chunk", async () => {
   const chunks = await chunkDocument([
     { text: `# A\n\n${filler}\n\n## B\n\n${"y".repeat(500)}` },
   ]);
-  for (const c of chunks) assert.doesNotMatch(c.text.trimEnd(), /(^|\n)#{1,6} [^\n]+$/);
-  assert.ok(chunks.some((c) => c.text.includes("## B") && c.text.includes("yyy")));
+  for (const chunk of chunks) assert.doesNotMatch(chunk.text.trimEnd(), /(^|\n)#{1,6} [^\n]+$/);
+  assert.ok(chunks.some((chunk) => chunk.text.includes("## B") && chunk.text.includes("yyy")));
 });
 
 test("headings carry across pages and chunks record their page span", async () => {
@@ -69,7 +69,7 @@ test("a paragraph split by a page break is chunked as one paragraph", async () =
 test("an oversized paragraph falls back to overlapping splits", async () => {
   const chunks = await chunkDocument([{ text: "word ".repeat(600) }]);
   assert.ok(chunks.length > 1);
-  for (const c of chunks) assert.ok(c.text.length <= 800);
+  for (const chunk of chunks) assert.ok(chunk.text.length <= 800);
 });
 
 test("empty input yields no chunks", async () => {

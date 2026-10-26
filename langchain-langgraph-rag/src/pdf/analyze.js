@@ -37,14 +37,14 @@ export async function imageCoverage(page) {
   const stack = [];
   let covered = 0;
 
-  fnArray.forEach((fn, i) => {
-    if (fn === OPS.save) stack.push(ctm);
-    else if (fn === OPS.restore) ctm = stack.pop() ?? ctm;
-    else if (fn === OPS.transform) ctm = multiply(argsArray[i], ctm);
+  fnArray.forEach((opCode, index) => {
+    if (opCode === OPS.save) stack.push(ctm);
+    else if (opCode === OPS.restore) ctm = stack.pop() ?? ctm;
+    else if (opCode === OPS.transform) ctm = multiply(argsArray[index], ctm);
     else if (
-      fn === OPS.paintImageXObject ||
-      fn === OPS.paintInlineImageXObject ||
-      fn === OPS.paintImageMaskXObject
+      opCode === OPS.paintImageXObject ||
+      opCode === OPS.paintInlineImageXObject ||
+      opCode === OPS.paintImageMaskXObject
     ) {
       // Images are drawn into the unit square, so |det| is the area.
       covered += Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2]);
