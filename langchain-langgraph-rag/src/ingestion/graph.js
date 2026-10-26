@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Annotation, StateGraph, START, END } from "@langchain/langgraph";
 import { chunkDocument } from "./chunker.js";
-import { loadAgents } from "./registry.js";
+import { loadAgents } from "./agentRegistry.js";
 import { chooseAgentWithLLM } from "./llm-router.js";
 
 // Bump when the chunker or an agent changes how documents are read, so
