@@ -3,7 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { db, embeddings, DIM } from "./rag.js";
-import { ingestFile, PIPELINE_VERSION } from "./ingestion/graph.js";
+import { ingestFile, currentPipelineVersion } from "./ingestion/graph.js";
+import { configureLogging, createLogger, elapsedMs, startTrace } from "./logger.js";
+
+configureLogging({ service: "docs-rag-ingest" });
+startTrace();
+const log = createLogger("ingestion");
+const runStartedAt = performance.now();
 
 const DOCS_DIR =
   process.env.DOCS_DIR ??
@@ -14,6 +20,13 @@ const files = fs
   .readdirSync(DOCS_DIR, { withFileTypes: true })
   .filter((entry) => entry.isFile())
   .map((entry) => entry.name);
+
+log.info("run.start", {
+  docs_dir: DOCS_DIR,
+  force: FORCE,
+  pipeline_version: currentPipelineVersion(),
+  files: files.length,
+});
 
 const known = new Map(
   db
@@ -64,7 +77,7 @@ const replaceDocument = db.transaction((doc, hash, rows, vectors) => {
   upsertDoc.run({
     doc,
     hash,
-    version: PIPELINE_VERSION,
+    version: currentPipelineVersion(),
     count: rows.length,
     at: new Date().toISOString(),
   });
@@ -87,7 +100,7 @@ for (const doc of known.keys()) {
   if (files.includes(doc)) continue;
   removeDocument(doc);
   counts.removed++;
-  console.error(`removed   ${doc}`);
+  log.info("document.removed", { doc });
 }
 
 for (const file of files) {
@@ -100,28 +113,42 @@ for (const file of files) {
   if (
     !FORCE &&
     previous?.hash === hash &&
-    previous.pipeline_version === PIPELINE_VERSION
+    previous.pipeline_version === currentPipelineVersion()
   ) {
     counts.unchanged++;
+    log.debug("document.unchanged", { doc: file });
     continue;
   }
+
+  const documentStartedAt = performance.now();
+  log.info("document.start", {
+    doc: file,
+    bytes: fs.statSync(path.join(DOCS_DIR, file)).size,
+    reason: !previous ? "new" : previous.hash !== hash ? "content_changed" : FORCE ? "forced" : "pipeline_changed",
+  });
 
   // Routing, parsing (text/OCR) and chunking happen in the ingestion graph.
   const { status, rows } = await ingestFile(path.join(DOCS_DIR, file));
   if (status !== "ok") {
     // Keep whatever is already indexed for this file.
     counts.skipped++;
+    log.warn("document.skipped", { doc: file, status, duration_ms: elapsedMs(documentStartedAt) });
     continue;
   }
 
+  const embedStartedAt = performance.now();
   const vectors = await embeddings.embedDocuments(rows.map((row) => row.text));
+  const embedMs = elapsedMs(embedStartedAt);
   replaceDocument(file, hash, rows, vectors);
   previous ? counts.updated++ : counts.added++;
-  console.error(`${previous ? "updated  " : "added    "} ${file} (${rows.length} chunks)`);
+  log.info("document.indexed", {
+    doc: file,
+    outcome: previous ? "updated" : "added",
+    chunks: rows.length,
+    embed_ms: embedMs,
+    duration_ms: elapsedMs(documentStartedAt),
+  });
 }
 
 const total = db.prepare("SELECT COUNT(*) AS n FROM chunks").get().n;
-console.error(
-  `Done: ${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(", ")}. ` +
-    `${total} chunks indexed. Dimension check: ${DIM}`,
-);
+log.info("run.done", { ...counts, chunks_indexed: total, embedding_dimensions: DIM, duration_ms: elapsedMs(runStartedAt) });

@@ -19,14 +19,24 @@ test("a table is never split mid-way when it fits", async () => {
   assert.equal(chunks.filter((chunk) => chunk.text.includes(table)).length, 1);
 });
 
-test("an oversized table is split by rows and repeats its header", async () => {
-  const rows = Array.from({ length: 80 }, (_unused, index) => `| row${index} | value${index} |`);
+test("a table that fits the table limit stays in one chunk, even past the chunk size", async () => {
+  const rows = Array.from({ length: 40 }, (_, index) => `| row${index} | value${index} |`);
   const table = ["| name | value |", "|---|---|", ...rows].join("\n");
+  assert.ok(table.length > 800 && table.length < 3000);
+  const chunks = await chunkDocument([{ text: table }]);
+  assert.equal(chunks.length, 1);
+  assert.ok(chunks[0].text.includes("row0 ") && chunks[0].text.includes("row39 "));
+});
+
+test("a table beyond the table limit is split by rows and repeats its header", async () => {
+  const rows = Array.from({ length: 300 }, (_, index) => `| row${index} | value${index} |`);
+  const table = ["| name | value |", "|---|---|", ...rows].join("\n");
+  assert.ok(table.length > 3000);
   const chunks = await chunkDocument([{ text: table }]);
   assert.ok(chunks.length > 1);
   for (const chunk of chunks) assert.ok(chunk.text.startsWith("| name | value |\n|---|---|"));
   const seen = chunks.flatMap((chunk) => chunk.text.match(/row\d+/g));
-  assert.equal(seen.length, 80);
+  assert.equal(seen.length, 300);
 });
 
 test("display math and code fences stay whole", async () => {
@@ -74,4 +84,23 @@ test("an oversized paragraph falls back to overlapping splits", async () => {
 
 test("empty input yields no chunks", async () => {
   assert.deepEqual(await chunkDocument([{ text: "  \n\n " }]), []);
+});
+
+test("a marked/unmarked matrix table gets a plain-language digest of its columns and marks", async () => {
+  const table = [
+    "| Engine | Base | Plus | Pro |",
+    "|---|---|---|---|",
+    "| Petrol 1.5 | • | • | - |",
+    "| Turbo 7DCT | - | • | • |",
+  ].join("\n");
+  const [chunk] = await chunkDocument([{ text: table }]);
+  assert.match(chunk.text, /3 columns: Base, Plus, Pro/);
+  assert.match(chunk.text, /Turbo 7DCT: Plus, Pro\./);
+  assert.ok(chunk.text.includes(table));
+});
+
+test("a table with real values gets no digest", async () => {
+  const table = "| name | value |\n|---|---|\n| a | 10 |\n| b | 20 |";
+  const [chunk] = await chunkDocument([{ text: table }]);
+  assert.equal(chunk.text, table);
 });

@@ -1,5 +1,10 @@
+import { createLogger } from "../logger.js";
+import { buildRouterMessages } from "../systemPrompts/index.js";
 import fs from "node:fs";
 import path from "node:path";
+import { extractJson, structuredOutputText } from "../llmJson.js";
+
+const log = createLogger("ingestion");
 
 // Fallback router for ambiguous or unmatched files. Talks to any
 // OpenAI-compatible endpoint (a cloud provider, or a self-hosted server) and
@@ -21,6 +26,14 @@ function sampleOf(filePath) {
   return sample.includes(0) ? "(binary)" : sample.toString("utf8");
 }
 
+// Reasoning models put their thinking in <think> blocks, and some wrap the
+// JSON in a code fence. Pull out the JSON object and check the choice.
+export function parseChoice(content, names) {
+  const { agent, reason } = extractJson(content);
+  if (!names.includes(agent)) throw new Error(`router LLM returned unknown agent "${agent}"`);
+  return { agent, reason };
+}
+
 // Returns the chosen agent name, or "none".
 export async function chooseAgentWithLLM(filePath, agents) {
   if (!BASE_URL || !MODEL)
@@ -38,31 +51,38 @@ export async function chooseAgentWithLLM(filePath, agents) {
     body: JSON.stringify({
       model: MODEL,
       temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "user",
-          content: [
-            "Pick the agent that should read this document, or \"none\" if no agent fits.",
-            `Reply with JSON only: {"agent": <one of ${JSON.stringify(names)}>, "reason": <short>}.`,
-            "",
-            "Agents:",
-            ...agents.map((agent) => `- ${agent.name}: ${agent.description}`),
-            "",
-            `File: ${path.basename(filePath)}`,
-            `Size: ${fs.statSync(filePath).size} bytes`,
-            `Start of file:\n${sampleOf(filePath)}`,
-          ].join("\n"),
+      // json_schema is the structured-output format OpenAI, LM Studio, vLLM
+      // and Ollama share; json_object is rejected by LM Studio.
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "agent_choice",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              agent: { type: "string", enum: names },
+              reason: { type: "string" },
+            },
+            required: ["agent", "reason"],
+            additionalProperties: false,
+          },
         },
-      ],
+      },
+      messages: buildRouterMessages({
+        agents,
+        names,
+        fileName: path.basename(filePath),
+        sizeBytes: fs.statSync(filePath).size,
+        sample: sampleOf(filePath),
+      }),
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`router LLM ${response.status}: ${await response.text()}`);
 
   const { choices } = await response.json();
-  const { agent, reason } = JSON.parse(choices[0].message.content);
-  if (!names.includes(agent)) throw new Error(`router LLM returned unknown agent "${agent}"`);
-  console.error(`LLM router: ${path.basename(filePath)} -> ${agent} (${reason})`);
+  const { agent, reason } = parseChoice(structuredOutputText(choices[0].message), names);
+  log.info("route.llm", { doc: path.basename(filePath), agent, reason });
   return agent;
 }

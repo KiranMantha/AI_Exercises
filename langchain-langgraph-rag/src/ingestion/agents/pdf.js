@@ -1,5 +1,8 @@
 import path from "node:path";
 import { parsePdf } from "../../processPdf/graph.js";
+import { createLogger } from "../../logger.js";
+
+const log = createLogger("ingestion");
 
 export default {
   name: "pdf",
@@ -10,7 +13,10 @@ export default {
     const file = path.basename(filePath);
     const { pages, routing } = await parsePdf(filePath);
     for (const pageRouting of routing)
-      console.error(`${file} p${pageRouting.page}: ${pageRouting.route} (${pageRouting.reason})`);
+      log.debug("pdf.page_routed", { doc: file, page: pageRouting.page, route: pageRouting.route, reason: pageRouting.reason });
+    const routes = {};
+    for (const pageRouting of routing) routes[pageRouting.route] = (routes[pageRouting.route] ?? 0) + 1;
+    log.info("pdf.parsed", { doc: file, pages: pages.length, routes });
     return pages.map((parsedPage) => ({
       text: parsedPage.text,
       page: parsedPage.page,
