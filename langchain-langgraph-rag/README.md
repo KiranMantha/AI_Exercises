@@ -18,8 +18,11 @@ flowchart TD
     subgraph G[Ingestion graph · src/ingestion/graph.js]
         R{Router<br/>match file extension<br/>against agent.accepts}
         R -- one match --> AG
-        R -- several or none --> L[LLM fallback<br/>picks from agent descriptions<br/>decision cached per extension]
+        R -- several or none --> C{Decision cached<br/>for this extension?}
+        C -- yes --> AG
+        C -- no --> L[LLM fallback<br/>picks from agent descriptions<br/>result stored in routing_cache]
         L -- chosen agent --> AG
+        L -- none fits --> S
         L -- unavailable --> F{any match?}
         F -- yes: first match --> AG
         F -- no --> S[Skip: unsupported]
@@ -78,10 +81,13 @@ Settings live in `.env`, which is git-ignored. Create it with `cp .env.example .
 | Variable | Used by | Default |
 | --- | --- | --- |
 | `DOCS_DIR`, `DB_PATH` | ingest, server | `src/docs`, `src/docs.db` |
-| `OCR_BASE_URL`, `OCR_MODEL`, `OCR_PROMPT`, `OCR_API_KEY` | OCR agent | `http://localhost:8000/v1`, `baidu/Unlimited-OCR`, `document parsing.` |
-| `OCR_ENABLED=false` | OCR agent | use the text layer for every page |
-| `PDF_MIN_CHARS`, `PDF_MAX_IMAGE_COVERAGE`, `PDF_MAX_MATH_RATIO` | PDF router | `50`, `0.2`, `0.02` |
+| `OCR_BASE_URL`, `OCR_MODEL`, `OCR_PROMPT`, `OCR_API_KEY` | OCR agent | `http://localhost:8000/v1`, `baidu/Unlimited-OCR`, `document parsing.`, unset |
+| `OCR_ENABLED` | OCR agent. `false` uses the text layer for every page | `true` |
+| `OCR_TIMEOUT_MS` | OCR agent, per page | `300000` |
+| `PDF_MIN_CHARS`, `PDF_MAX_IMAGE_COVERAGE`, `PDF_MAX_MATH_RATIO` | PDF router: a page goes to OCR when any threshold trips | `50`, `0.2`, `0.02` |
+| `PDF_RENDER_SCALE` | OCR agent, page render scale | `2` |
 | `ROUTER_BASE_URL`, `ROUTER_MODEL`, `ROUTER_API_KEY` | LLM fallback router (any OpenAI-compatible endpoint) | unset: fallback disabled |
+| `ROUTER_TIMEOUT_MS` | LLM fallback router | `60000` |
 
 ## Commands
 
