@@ -1,0 +1,12 @@
+[
+  { "query": "How long do refunds take?", "answerable": true, "expectedPhrases": ["five business days"] },
+  { "query": "When are invoices generated?", "answerable": true, "expectedPhrases": ["first day of each month"] },
+  { "query": "What happens when a payment fails?", "answerable": true, "expectedPhrases": ["retried three times"] },
+  { "query": "Why was I logged out?", "answerable": true, "expectedPhrases": ["session expires", "24 hours of inactivity"] },
+  { "query": "What does error ERR_AUTH_417 mean?", "answerable": true, "expectedPhrases": ["token has been revoked"] },
+  { "query": "Is a password reset link time limited?", "answerable": true, "expectedPhrases": ["valid for 30 minutes"] },
+  { "query": "Who won the football world cup?", "answerable": false },
+  { "query": "What is the capital of France?", "answerable": false },
+  { "query": "Do you support single sign-on with SAML?", "answerable": false },
+  { "query": "What is the refund policy for hardware?", "answerable": false }
+]
