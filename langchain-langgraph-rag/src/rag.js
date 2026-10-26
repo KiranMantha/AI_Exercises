@@ -55,11 +55,44 @@ const RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2";
 const db = new Database(DB_PATH);
 sqliteVec.load(db);
 
+// The index is derived data, so a schema change rebuilds it (re-run ingest).
+const SCHEMA_VERSION = 2;
+if (db.pragma("user_version", { simple: true }) < SCHEMA_VERSION) {
+  db.exec(`
+    DROP TABLE IF EXISTS fts_chunks;
+    DROP TABLE IF EXISTS vec_chunks;
+    DROP TABLE IF EXISTS chunks;
+    DROP TABLE IF EXISTS documents;
+  `);
+  db.pragma(`user_version = ${SCHEMA_VERSION}`);
+}
+
 db.exec(`
+  -- One row per ingested file; drives incremental ingestion.
+  CREATE TABLE IF NOT EXISTS documents (
+    doc TEXT PRIMARY KEY,
+    hash TEXT NOT NULL,
+    pipeline_version TEXT NOT NULL,
+    chunk_count INTEGER NOT NULL,
+    ingested_at TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS chunks (
     id INTEGER PRIMARY KEY,
-    source TEXT NOT NULL,
+    doc TEXT NOT NULL REFERENCES documents(doc),
+    source TEXT NOT NULL,   -- citation, e.g. "deck.pdf (p. 9)"
+    page INTEGER,           -- first page the chunk covers (PDFs)
+    page_end INTEGER,
+    section TEXT,           -- heading path, e.g. "Billing > Refunds"
+    via TEXT,               -- parser that produced the text: text / ocr / ...
     text TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS chunks_doc ON chunks(doc);
+  -- LLM routing decisions per file extension (see ingestion/routeCache.js).
+  CREATE TABLE IF NOT EXISTS routing_cache (
+    key TEXT PRIMARY KEY,
+    ext TEXT NOT NULL,
+    agent TEXT NOT NULL,    -- chosen agent name, or "none"
+    decided_at TEXT NOT NULL
   );
   CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
     embedding float[${DIM}]
@@ -73,7 +106,7 @@ db.exec(`
 `);
 
 const vecStmt = db.prepare(`
-  SELECT c.id, c.source, c.text, v.distance
+  SELECT c.id, c.doc, c.source, c.page, c.page_end, c.section, c.via, c.text, v.distance
   FROM vec_chunks v
   JOIN chunks c ON c.id = v.rowid
   WHERE v.embedding MATCH ? AND k = ?
@@ -82,7 +115,7 @@ const vecStmt = db.prepare(`
 
 // bm25() returns lower values for better matches, so ORDER BY rank ascending.
 const ftsStmt = db.prepare(`
-  SELECT c.id, c.source, c.text, bm25(fts_chunks) AS score
+  SELECT c.id, c.doc, c.source, c.page, c.page_end, c.section, c.via, c.text, bm25(fts_chunks) AS score
   FROM fts_chunks
   JOIN chunks c ON c.id = fts_chunks.rowid
   WHERE fts_chunks MATCH ?
