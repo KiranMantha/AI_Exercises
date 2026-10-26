@@ -8,7 +8,18 @@
     "ingest": "env-cmd --no-override -f .env node src/ingest.js",
     "ingest:full": "env-cmd --no-override -f .env node src/ingest.js --force",
     "test": "env-cmd --no-override -f .env node src/test-client.js",
-    "test:unit": "node --test \"src/**/*.test.js\""
+    "test:unit": "node --test \"src/**/*.test.js\"",
+    "api": "env-cmd --no-override -f .env node src/api.js",
+    "web:install": "pnpm --dir web install",
+    "web:dev": "env-cmd --no-override -f .env pnpm --dir web dev",
+    "web:build": "pnpm --dir web build",
+    "web:test": "pnpm --dir web test",
+    "backend:dev": "",
+    "router:check": "env-cmd --no-override -f .env node src/ingestion/checkRouter.js",
+    "eval:retrieval": "env-cmd --no-override -f .env node src/eval/evaluateRetrieval.js",
+    "dev": "concurrently --kill-others-on-fail -n api,web -c blue,green \"pnpm api\" \"pnpm web:dev\"",
+    "eval:chat": "env-cmd --no-override -f .env node src/eval/chatRegression.js",
+    "layout:setup": "uv venv .venv-layout --python 3.12 && uv pip install --python .venv-layout/bin/python docling"
   },
   "keywords": [],
   "author": "",
@@ -33,6 +44,7 @@
     ]
   },
   "devDependencies": {
+    "concurrently": "^10.0.6",
     "env-cmd": "^11.0.0"
   }
 }

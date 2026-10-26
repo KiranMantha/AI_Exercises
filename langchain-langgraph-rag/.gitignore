@@ -1,1 +1,5 @@
 .env
+web/dist
+.venv-layout
+logs/
+__pycache__/
