@@ -9,7 +9,7 @@ Numbers below are estimates, not measurements. They assume about 20 chunks per d
 Built for a small corpus in one local directory:
 
 - Incremental ingestion by content hash, one transaction per document.
-- Agents discovered from `src/ingestion/agents/`, routed by file extension, with a cached LLM fallback for ambiguous or unmatched files.
+- Agents discovered from `backend/src/ingestion/agents/`, routed by file extension, with a cached LLM fallback for ambiguous or unmatched files.
 - Per-page PDF routing between text extraction and OCR.
 - Structure-aware chunking with heading paths and page ranges.
 - Hybrid search (vector + keyword, fused, then reranked) over SQLite.

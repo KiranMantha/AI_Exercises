@@ -17,7 +17,8 @@ import { fileURLToPath } from "node:url";
 // unless LOG_QUERIES=true opts in to the search query.
 
 const SEVERITY = { debug: 5, info: 9, warn: 13, error: 17 };
-const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// backend/src -> backend -> the project root, where logs/ lives (next to .env and web/).
+const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 // `node --test` should not write log files or flood the test report.
 const underTest = Boolean(process.env.NODE_TEST_CONTEXT);
