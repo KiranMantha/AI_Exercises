@@ -3,17 +3,29 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { embeddings } from "./embeddings.js";
+import { applyRelevanceGate, RERANK_MARGIN, RERANK_MIN_SCORE } from "./relevanceGate.js";
+import { createLogger, elapsedMs, queryAttributes } from "./logger.js";
 import { StateGraph, Annotation, START, END } from "@langchain/langgraph";
 import {
   AutoTokenizer,
   AutoModelForSequenceClassification,
 } from "@huggingface/transformers";
 
+const log = createLogger("retrieval");
+
 const DIM = 384; // all-MiniLM-L6-v2
 const SRC_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH ?? path.join(SRC_DIR, "docs.db");
 const RRF_K = 60;
 const CANDIDATE_MULTIPLIER = 3;
+// How many candidates each retriever contributes and the reranker scores.
+// Recall-oriented: a relevant chunk the reranker never sees cannot be found.
+// Defaults to maxResults x 3; set RETRIEVAL_POOL_SIZE to go deeper (the
+// reranker's cost grows with it). Choose it with `pnpm eval:retrieval`.
+const POOL_SIZE = process.env.RETRIEVAL_POOL_SIZE
+  ? Number(process.env.RETRIEVAL_POOL_SIZE)
+  : undefined;
+const poolSizeFor = (maxResults) => POOL_SIZE ?? maxResults * CANDIDATE_MULTIPLIER;
 const STOPWORDS = new Set([
   "a",
   "an",
@@ -46,11 +58,7 @@ const STOPWORDS = new Set([
   "why",
   "with",
 ]);
-// The reranker returns logits. Keep results within RERANK_MARGIN of the best
-// score for the query, and drop anything below RERANK_FLOOR.
-const RERANK_MARGIN = 3;
-const RERANK_FLOOR = 0; // calibrate this with the steps below
-const RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2";
+const RERANK_MODEL = process.env.RERANK_MODEL ?? "Xenova/ms-marco-MiniLM-L-6-v2";
 
 const db = new Database(DB_PATH);
 sqliteVec.load(db);
@@ -161,24 +169,25 @@ const RetrievalState = Annotation.Root({
   vecResults: Annotation({ reducer: (_, b) => b, default: () => [] }),
   ftsResults: Annotation({ reducer: (_, b) => b, default: () => [] }),
   results: Annotation({ reducer: (_, b) => b, default: () => [] }),
+  // Every reranked candidate before the relevance gate, best first. Used to
+  // evaluate and calibrate the gate.
+  candidates: Annotation({ reducer: (_, b) => b, default: () => [] }),
 });
 
 // Two branches run in parallel after START.
 const vectorNode = async (state) => {
   const vector = await embeddings.embedQuery(state.query);
-  const CANDIDATE_POOL_SIZE = state.maxResults * CANDIDATE_MULTIPLIER;
-  const rows = vecStmt.all(new Float32Array(vector), CANDIDATE_POOL_SIZE);
+  const rows = vecStmt.all(new Float32Array(vector), poolSizeFor(state.maxResults));
   return { vecResults: rows };
 };
 
 const keywordNode = (state) => {
-  const CANDIDATE_POOL_SIZE = state.maxResults * CANDIDATE_MULTIPLIER;
   const match = toFtsQuery(state.query);
   if (!match) return { ftsResults: [] };
   try {
-    return { ftsResults: ftsStmt.all(match, CANDIDATE_POOL_SIZE) };
+    return { ftsResults: ftsStmt.all(match, poolSizeFor(state.maxResults)) };
   } catch (err) {
-    console.error("keyword branch failed:", err.message);
+    log.warn("keyword_branch.failed", { error: err });
     return { ftsResults: [] }; // malformed FTS query: fall back to vectors only
   }
 };
@@ -200,30 +209,28 @@ const fuseNode = (state) => {
 
   const fused = [...scores.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, state.maxResults * CANDIDATE_MULTIPLIER)
+    .slice(0, poolSizeFor(state.maxResults))
     .map(([id, score]) => ({ ...seen.get(id), score }));
 
   return { results: fused };
 };
 
 const rerankNode = async (state) => {
-  if (state.results.length === 0) return { results: [] };
+  if (state.results.length === 0) return { results: [], candidates: [] };
 
   const scores = await rerankScores(
     state.query,
-    state.results.map((r) => r.text),
+    state.results.map((row) => row.text),
   );
 
   const scored = state.results
-    .map((r, i) => ({ ...r, score: scores[i] }))
-    .sort((a, b) => b.score - a.score);
+    .map((row, index) => ({ ...row, score: scores[index] }))
+    .sort((first, second) => second.score - first.score);
 
-  const best = scored[0].score;
-  const kept = scored.filter(
-    (r) => r.score >= RERANK_FLOOR && best - r.score <= RERANK_MARGIN,
-  );
-
-  return { results: kept.slice(0, state.maxResults) };
+  return {
+    candidates: scored,
+    results: applyRelevanceGate(scored, { maxResults: state.maxResults }),
+  };
 };
 
 const retrievalGraph = new StateGraph(RetrievalState)
@@ -239,9 +246,45 @@ const retrievalGraph = new StateGraph(RetrievalState)
   .addEdge("rerank", END)
   .compile();
 
+// One log line per search: how many hits each branch found, what the reranker
+// scored, and what the relevance gate let through.
+async function runSearch(query, maxResults) {
+  const startedAt = performance.now();
+  const state = await retrievalGraph.invoke({ query, maxResults });
+  log.info("search", {
+    ...queryAttributes(query),
+    max_results: maxResults,
+    vector_hits: state.vecResults.length,
+    keyword_hits: state.ftsResults.length,
+    reranked: state.candidates.length,
+    top_scores: state.candidates.slice(0, 3).map((chunk) => Number(chunk.score.toFixed(2))),
+    kept: state.results.length,
+    kept_chunk_ids: state.results.map((chunk) => chunk.id),
+    gate_min_score: RERANK_MIN_SCORE,
+    gate_margin: RERANK_MARGIN,
+    rerank_model: RERANK_MODEL,
+    duration_ms: elapsedMs(startedAt),
+  });
+  return state;
+}
+
 async function searchDocs(query, maxResults = 5) {
-  const out = await retrievalGraph.invoke({ query, maxResults });
+  const out = await runSearch(query, maxResults);
   return out.results;
 }
 
-export { embeddings, toFtsQuery, db, DIM, DB_PATH, searchDocs };
+// Same search, but also returns the candidates the relevance gate saw.
+async function searchDocsDetailed(query, maxResults = 5) {
+  const { results, candidates } = await runSearch(query, maxResults);
+  return { results, candidates };
+}
+
+export {
+  embeddings,
+  toFtsQuery,
+  db,
+  DIM,
+  DB_PATH,
+  searchDocs,
+  searchDocsDetailed,
+};
