@@ -2,10 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 // Fallback router for ambiguous or unmatched files. Talks to any
-// OpenAI-compatible server (Ollama, vLLM, llama.cpp) and is only called when
-// the deterministic match can't decide. Unconfigured => it throws and the
-// caller falls back to the first match.
-const BASE_URL = process.env.ROUTER_BASE_URL ?? "http://localhost:11434/v1";
+// OpenAI-compatible endpoint (a cloud provider, or a self-hosted server) and
+// is only called when the deterministic match can't decide. Both variables
+// must be set; otherwise it throws and the caller falls back to the first
+// match.
+const BASE_URL = process.env.ROUTER_BASE_URL;
 const MODEL = process.env.ROUTER_MODEL;
 const TIMEOUT_MS = Number(process.env.ROUTER_TIMEOUT_MS ?? 60_000);
 const SAMPLE_BYTES = 500;
@@ -21,7 +22,8 @@ function sampleOf(filePath) {
 
 // Returns the chosen agent name, or "none".
 export async function chooseAgentWithLLM(filePath, agents) {
-  if (!MODEL) throw new Error("ROUTER_MODEL is not set");
+  if (!BASE_URL || !MODEL)
+    throw new Error("ROUTER_BASE_URL and ROUTER_MODEL must both be set");
   const names = [...agents.map((a) => a.name), "none"];
 
   const res = await fetch(`${BASE_URL}/chat/completions`, {

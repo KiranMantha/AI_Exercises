@@ -87,6 +87,13 @@ db.exec(`
     text TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS chunks_doc ON chunks(doc);
+  -- LLM routing decisions per file extension (see ingestion/routeCache.js).
+  CREATE TABLE IF NOT EXISTS routing_cache (
+    key TEXT PRIMARY KEY,
+    ext TEXT NOT NULL,
+    agent TEXT NOT NULL,    -- chosen agent name, or "none"
+    decided_at TEXT NOT NULL
+  );
   CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
     embedding float[${DIM}]
   );

@@ -4,10 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "npx @modelcontextprotocol/inspector node src/server.js",
-    "ingest": "node src/ingest.js",
-    "ingest:full": "node src/ingest.js --force",
-    "test": "node src/test-client.js",
+    "start": "env-cmd --no-override -f .env npx @modelcontextprotocol/inspector node src/server.js",
+    "ingest": "env-cmd --no-override -f .env node src/ingest.js",
+    "ingest:full": "env-cmd --no-override -f .env node src/ingest.js --force",
+    "test": "env-cmd --no-override -f .env node src/test-client.js",
     "test:unit": "node --test \"src/**/*.test.js\""
   },
   "keywords": [],
@@ -31,5 +31,8 @@
       "onnxruntime-node",
       "protobufjs"
     ]
+  },
+  "devDependencies": {
+    "env-cmd": "^11.0.0"
   }
 }

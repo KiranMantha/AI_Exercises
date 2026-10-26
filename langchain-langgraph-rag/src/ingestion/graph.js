@@ -3,6 +3,7 @@ import { Annotation, StateGraph, START, END } from "@langchain/langgraph";
 import { chunkDocument } from "./chunker.js";
 import { loadAgents } from "./agentRegistry.js";
 import { chooseAgentWithLLM } from "./llm-router.js";
+import { routeCache, routeKey } from "./routeCache.js";
 
 // Bump when the chunker or an agent changes how documents are read, so
 // existing documents are re-ingested.
@@ -21,17 +22,22 @@ const agents = await loadAgents();
 
 // Deterministic first: the agents that declare this file's extension. The
 // LLM is consulted from the agents' descriptions only when that is
-// ambiguous (several match) or empty (none match).
+// ambiguous (several match) or empty (none match), and the decision is
+// cached per extension. Extensionless files are decided on content, so they
+// are never cached.
 async function routeDocument(state) {
   const ext = path.extname(state.filePath).toLowerCase();
   const matches = agents.filter((a) => a.accepts.includes(ext));
   if (matches.length === 1) return matches[0].name;
 
+  const candidates = matches.length ? matches : agents;
+  const key = routeKey(ext, candidates);
+  const cached = ext ? routeCache.get(key) : undefined;
+  if (cached) return cached === "none" ? "skip" : cached;
+
   try {
-    const choice = await chooseAgentWithLLM(
-      state.filePath,
-      matches.length ? matches : agents,
-    );
+    const choice = await chooseAgentWithLLM(state.filePath, candidates);
+    if (ext) routeCache.set(key, ext, choice);
     return choice === "none" ? "skip" : choice;
   } catch (err) {
     console.error(

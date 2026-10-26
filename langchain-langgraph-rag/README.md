@@ -18,7 +18,7 @@ flowchart TD
     subgraph G[Ingestion graph · src/ingestion/graph.js]
         R{Router<br/>match file extension<br/>against agent.accepts}
         R -- one match --> AG
-        R -- several or none --> L[LLM fallback<br/>picks from agent descriptions<br/>ROUTER_BASE_URL / ROUTER_MODEL]
+        R -- several or none --> L[LLM fallback<br/>picks from agent descriptions<br/>decision cached per extension]
         L -- chosen agent --> AG
         L -- unavailable --> F{any match?}
         F -- yes: first match --> AG
@@ -51,6 +51,8 @@ flowchart TD
 
 A file that fails to parse (for example a password-protected PDF) is skipped and its existing chunks are kept.
 
+The router's LLM is called only for files with several or no matching agents. Its decision is cached per extension in the `routing_cache` table (keyed on the candidate agents' names and descriptions, so editing an agent invalidates it), so an unrecognised extension costs one call, not one per file. Extensionless files are decided on content and never cached.
+
 ## Search (`search_docs` MCP tool)
 
 ```mermaid
@@ -71,15 +73,17 @@ Add a file to `src/ingestion/agents/` that default-exports `{ name, description,
 
 ## Configuration
 
+Settings live in `.env`, which is git-ignored. Create it with `cp .env.example .env`. The `start`, `ingest`, `ingest:full` and `test` scripts load it through `env-cmd`, and a variable already set in your shell takes precedence over the file. The scripts fail if `.env` is missing. `test:unit` doesn't use it.
+
 | Variable | Used by | Default |
 | --- | --- | --- |
 | `DOCS_DIR`, `DB_PATH` | ingest, server | `src/docs`, `src/docs.db` |
 | `OCR_BASE_URL`, `OCR_MODEL`, `OCR_PROMPT`, `OCR_API_KEY` | OCR agent | `http://localhost:8000/v1`, `baidu/Unlimited-OCR`, `document parsing.` |
 | `OCR_ENABLED=false` | OCR agent | use the text layer for every page |
 | `PDF_MIN_CHARS`, `PDF_MAX_IMAGE_COVERAGE`, `PDF_MAX_MATH_RATIO` | PDF router | `50`, `0.2`, `0.02` |
-| `ROUTER_BASE_URL`, `ROUTER_MODEL`, `ROUTER_API_KEY` | LLM fallback router | `http://localhost:11434/v1`, unset (fallback disabled) |
+| `ROUTER_BASE_URL`, `ROUTER_MODEL`, `ROUTER_API_KEY` | LLM fallback router (any OpenAI-compatible endpoint) | unset: fallback disabled |
 
 ## Commands
 
 - `pnpm ingest` indexes new and changed files only. `pnpm ingest:full` rebuilds everything.
-- `pnpm test:unit` runs the chunker tests. `pnpm test` runs the MCP client against the server.
+- `pnpm test:unit` runs the chunker and routing-cache tests. `pnpm test` runs the MCP client against the server.
