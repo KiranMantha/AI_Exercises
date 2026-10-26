@@ -4,28 +4,43 @@ Referece Docs:
 - [ai-langchain-langgraph-rag.md](https://gist.github.com/KiranMantha/aea0f556af1de0adb0ce0e594e4f586e)
 - [SCALING.md](SCALING.md): known limitations and planned enhancements for larger corpora
 
+# Project layout
+
+```text
+backend/        the RAG system: ingestion, search, MCP server, chat API (Node)
+  src/            code, tests, the documents (src/docs) and the index (src/docs.db)
+  scripts/        the PDF layout parser (Python, run as a subprocess)
+  package.json    backend dependencies and scripts
+web/            the chat frontend (Preact, Vite); talks to the API only over /api/chat
+.env            settings for both, read by env-cmd (git-ignored; template: .env.example)
+logs/           structured logs, one timestamped file per process start (git-ignored)
+package.json    forwards pnpm ingest, api, dev, eval:chat ... to backend/ and web/
+```
+
+Install once with `pnpm backend:install` and `pnpm web:install`. Every command below runs from this folder.
+
 # Flow
 
-How the pieces fit. Everything reads and writes one SQLite database (`src/docs.db`).
+How the pieces fit. Everything reads and writes one SQLite database (`backend/src/docs.db`).
 
 ```mermaid
 flowchart LR
     subgraph INGEST[Ingestion · pnpm ingest]
-        DOCS[src/docs<br/>md, pdf] --> IG[Ingestion graph<br/>route to an agent, read, chunk, embed]
+        DOCS[backend/src/docs<br/>md, pdf] --> IG[Ingestion graph<br/>route to an agent, read, chunk, embed]
     end
-    IG --> DB[(src/docs.db<br/>documents, chunks,<br/>vector and keyword indexes,<br/>routing cache)]
+    IG --> DB[(backend/src/docs.db<br/>documents, chunks,<br/>vector and keyword indexes,<br/>routing cache)]
 
     subgraph RETRIEVAL[Retrieval]
-        SEARCH[Hybrid search · src/rag.js<br/>vector and keyword, fuse,<br/>rerank, relevance gate]
-        MCP[MCP server · src/mcp<br/>search_docs, list_documents,<br/>read_document]
+        SEARCH[Hybrid search · backend/src/rag.js<br/>vector and keyword, fuse,<br/>rerank, relevance gate]
+        MCP[MCP server · backend/src/mcp<br/>search_docs, list_documents,<br/>read_document]
         SEARCH --> MCP
     end
     DB --> SEARCH
     DB -- list and read --> MCP
-    EXT[Other MCP clients<br/>Inspector, apps] -- stdio · src/server.js --> MCP
+    EXT[Other MCP clients<br/>Inspector, apps] -- stdio · backend/src/server.js --> MCP
 
     subgraph CHAT[Chat · pnpm api]
-        WEB[Browser · web/<br/>Preact app] --> API[src/api.js<br/>input guard, rate limit, trace id]
+        WEB[Browser · web/<br/>Preact app] --> API[backend/src/api.js<br/>input guard, rate limit, trace id]
         API --> MODE{CHAT_RETRIEVAL<br/>default auto}
         MODE -- comparison questions --> AGENT[Agent<br/>model calls the MCP tools]
         MODE -- other questions --> PIPE[Pipeline<br/>fixed retrieve, rerank, answer]
@@ -35,7 +50,7 @@ flowchart LR
     AGENT --> LLM[Chat model<br/>OpenAI-compatible, cloud or local]
     PIPE --> LLM
 
-    POLICY[src/systemPrompts and src/guardrails<br/>every prompt, refusal text and check] -.-> IG
+    POLICY[backend/src/systemPrompts and backend/src/guardrails<br/>every prompt, refusal text and check] -.-> IG
     POLICY -.-> AGENT
     POLICY -.-> PIPE
     IG -. router fallback and OCR .-> MODELS[Router LLM and OCR model<br/>OpenAI-compatible]
@@ -51,12 +66,12 @@ Each part is described below.
 
 ```mermaid
 flowchart TD
-    FILES[src/docs/*] --> CHANGED{Changed?<br/>SHA-256 or pipeline version<br/>layout engine is part of the version}
+    FILES[backend/src/docs/*] --> CHANGED{Changed?<br/>SHA-256 or pipeline version<br/>layout engine is part of the version}
     CHANGED -- unchanged --> SKIP[Skip]
     FILES -. file removed .-> DELETE[Delete its chunks<br/>from every index]
     CHANGED -- new or changed --> ROUTE
 
-    subgraph GRAPH[Ingestion graph · src/ingestion/graph.js]
+    subgraph GRAPH[Ingestion graph · backend/src/ingestion/graph.js]
         ROUTE{Router<br/>file extension against<br/>each agent's accepts}
         ROUTE -- exactly one --> AGENTS
         ROUTE -- several or none --> CACHED{Decision cached<br/>for this extension?}
@@ -68,16 +83,16 @@ flowchart TD
         MATCH -- yes, the first --> AGENTS
         MATCH -- no --> UNSUPPORTED
 
-        subgraph AGENTS[Agents · one file each in src/ingestion/agents]
+        subgraph AGENTS[Agents · one file each in backend/src/ingestion/agents]
             MD[markdown agent · .md]
             PDF[pdf agent · .pdf]
         end
 
         PDF --> TRUST
-        subgraph PAGES[Per-page router · src/processPdf/graph.js]
+        subgraph PAGES[Per-page router · backend/src/processPdf/graph.js]
             TRUST{Can this page's text layer be trusted?<br/>under 50 chars: no text layer<br/>formula glyph ratio 0.02 or more: garbled<br/>opt-in: images cover a set fraction}
             TRUST -- yes --> LAYOUT{Layout parser<br/>configured and working?}
-            LAYOUT -- yes --> LY[Layout agent · scripts/pdf_to_markdown.py<br/>Docling or PyMuPDF subprocess<br/>tables as tables, reading order]
+            LAYOUT -- yes --> LY[Layout agent · backend/scripts/pdf_to_markdown.py<br/>Docling or PyMuPDF subprocess<br/>tables as tables, reading order]
             LAYOUT -- no, or it failed --> TX[Text agent<br/>unpdf text layer]
             TRUST -- no --> OC[OCR agent<br/>render the page, call Unlimited-OCR<br/>text layer if OCR fails]
         end
@@ -119,14 +134,14 @@ flowchart TD
     GATE -. one log line per search .-> LOG[(logs/<br/>hits per branch, top scores, chunks kept)]
 ```
 
-The vector and keyword branches run in parallel (LangGraph, `src/rag.js`). The fixed chat pipeline uses only the strong results at first; `search_docs` returns both so a model can judge weak matches itself.
+The vector and keyword branches run in parallel (LangGraph, `backend/src/rag.js`). The fixed chat pipeline uses only the strong results at first; `search_docs` returns both so a model can judge weak matches itself.
 
 ## Chat (`pnpm api` + `web/`)
 
-A Preact app in `web/` talks to a small HTTP API (`src/api.js`) that answers from the indexed documents with a chat model and refuses anything they don't support. There are three ways to retrieve, chosen by `CHAT_RETRIEVAL`:
+A Preact app in `web/` talks to a small HTTP API (`backend/src/api.js`) that answers from the indexed documents with a chat model and refuses anything they don't support. There are three ways to retrieve, chosen by `CHAT_RETRIEVAL`:
 
 - **`auto` (default when a chat model is configured):** comparison questions ("compare", "versus", "which is better", "difference") go to the agent, everything else to the cheaper fixed pipeline.
-- **`agent`: model-driven retrieval.** The chat model is an MCP client of this project's own docs server (`src/mcp/tools.js`). It decides which tools to call, can search again with different wording, can read around a hit, and answers from what the tools return.
+- **`agent`: model-driven retrieval.** The chat model is an MCP client of this project's own docs server (`backend/src/mcp/tools.js`). It decides which tools to call, can search again with different wording, can read around a hit, and answers from what the tools return.
 - **`pipeline`:** a fixed retrieve, rerank, answer flow (described further down), cheaper per question.
 - With no chat model configured the API runs in **extractive** mode and returns cited excerpts.
 
@@ -136,13 +151,13 @@ Why `auto`: measured on the first 10 scenarios with a local 9B reasoning model, 
 
 ```mermaid
 flowchart TD
-    U[Browser · web/ Preact app] -- POST /api/chat --> API[src/api.js<br/>size limit, rate limit, trace id]
+    U[Browser · web/ Preact app] -- POST /api/chat --> API[backend/src/api.js<br/>size limit, rate limit, trace id]
     API --> GUARD{Input guard<br/>length, control characters,<br/>injection patterns}
-    GUARD -- blocked --> REFUSE[Fixed refusal<br/>src/systemPrompts/refusals.js]
+    GUARD -- blocked --> REFUSE[Fixed refusal<br/>backend/src/systemPrompts/refusals.js]
     GUARD -- ok --> TURN[Chat model turn with the MCP tools<br/>search_docs · list_documents · read_document<br/>price or value questions also get the closest-answer rule<br/>after CHAT_MAX_ROUNDS turns no tools are offered and it must finish]
     TURN -- asks for tools --> VALID{Validate each call<br/>known tool, JSON object arguments,<br/>not a repeat, within the call budget}
     VALID -- rejected --> TURN
-    VALID -- ok --> MCP[MCP server · src/mcp/tools.js<br/>hybrid search, read pages]
+    VALID -- ok --> MCP[MCP server · backend/src/mcp/tools.js<br/>hybrid search, read pages]
     MCP --> NUMBER[Number the passages<br/>passages already given are not resent]
     NUMBER --> TURN
     TURN -- final reply --> OUTPUT{Output guard<br/>cites passages the tools returned,<br/>no invented links or images,<br/>not NOT_IN_DOCS}
@@ -169,9 +184,9 @@ The model chooses the arguments, so nothing it sends is trusted: the tool must e
 
 ```mermaid
 flowchart TD
-    U[Browser · web/ Preact app] -- POST /api/chat --> API[src/api.js<br/>size limit, rate limit, trace id]
+    U[Browser · web/ Preact app] -- POST /api/chat --> API[backend/src/api.js<br/>size limit, rate limit, trace id]
     API --> GUARD{Input guard<br/>length, control characters,<br/>injection patterns}
-    GUARD -- blocked --> REFUSE[Fixed refusal<br/>src/systemPrompts/refusals.js]
+    GUARD -- blocked --> REFUSE[Fixed refusal<br/>backend/src/systemPrompts/refusals.js]
     GUARD -- ok --> RETRIEVE[Retrieve<br/>the hybrid search above]
     RETRIEVE --> PASSED{Anything passed<br/>the relevance gate?}
     PASSED -- yes --> CONFIGURED{Chat model<br/>configured?}
@@ -202,8 +217,8 @@ How "only from the ingested data" is enforced:
 - **No evidence, no answer.** If search returns nothing relevant, the reply is a fixed refusal.
 - **Cheap gate first, model second.** The cross-encoder gate accepts clear matches with no extra cost. When it rejects everything but the best candidate is not obviously irrelevant (above `RERANK_REJECT_BELOW`), a model reads the top `CHAT_RERANK_CANDIDATES` passages and returns the ids that help, which fixes questions the small reranker mis-scores (for example a yes/no question about one item in a feature list). The model returns integers only, checked against the offered list, so text inside a document cannot be echoed or obeyed. Clearly irrelevant questions below the floor skip the model. This costs one extra model call only for uncertain questions.
 - **One retry with different words.** Documents often say "trims" where users say "variants". When the model finds nothing helpful, or the answer model says the sources don't cover it, the model proposes up to three alternative search queries, the search runs again, and only passages it has not already seen are offered. It happens once per question (`CHAT_QUERY_REWRITE=false` turns it off) and costs extra model calls only for questions that would otherwise be refused.
-- **Strict system prompt** (`src/systemPrompts/`, versioned as `PROMPT_VERSION`). The model sees only the retrieved sources, treats them as untrusted data, must cite every claim as `[n]`, and must reply `NOT_IN_DOCS` when the sources don't cover the question or the request is off-topic. The prompt has an output contract with WRONG/RIGHT examples, because small models drift from plain rules.
-- **Output check** (`src/guardrails/`). The answer is rejected unless it cites sources that exist and contains no link that isn't in the sources and no image. Refusals are recognised wherever they appear: the `NOT_IN_DOCS` marker anywhere in the reply, a refusal opener ("I cannot answer..."), or a first sentence saying the sources do not state it. Source-announcing openers and closing offers are then stripped deterministically.
+- **Strict system prompt** (`backend/src/systemPrompts/`, versioned as `PROMPT_VERSION`). The model sees only the retrieved sources, treats them as untrusted data, must cite every claim as `[n]`, and must reply `NOT_IN_DOCS` when the sources don't cover the question or the request is off-topic. The prompt has an output contract with WRONG/RIGHT examples, because small models drift from plain rules.
+- **Output check** (`backend/src/guardrails/`). The answer is rejected unless it cites sources that exist and contains no link that isn't in the sources and no image. Refusals are recognised wherever they appear: the `NOT_IN_DOCS` marker anywhere in the reply, a refusal opener ("I cannot answer..."), or a first sentence saying the sources do not state it. Source-announcing openers and closing offers are then stripped deterministically.
 - **Telemetry on every response.** `enforcementLayer` says which layer refused (`input_guard`, `relevance_gate`, `llm_rerank`, `model_refusal`, `output_guard`, `llm_error`), and `usage` lists each model call with its latency and prompt, completion and cached tokens. The API logs a summary line per question.
 - **Input check.** Length and control characters are checked, and obvious injection phrases are blocked. This is a heuristic, not a security boundary; the output check is the real defence.
 - **Safe rendering.** The frontend sanitises the model's markdown (no images, scripts or event handlers; links limited to http(s)).
@@ -215,6 +230,7 @@ Brochures and manuals rarely state a price, value for money or a recommendation.
 Run it:
 
 ```bash
+pnpm backend:install                 # once: backend dependencies
 pnpm web:install                     # once: frontend dependencies
 pnpm ingest                          # index documents
 pnpm dev                             # API on :3001 and the frontend on http://localhost:5173 (hot reload, /api proxied)
@@ -229,12 +245,12 @@ Set `CHAT_BASE_URL` and `CHAT_MODEL` (and `CHAT_API_KEY` if the server needs one
 ```mermaid
 flowchart LR
     FAIL[A question fails<br/>in front of a user] --> TRACE[Read its trace in logs/<br/>which stage refused, scores, tokens]
-    TRACE --> SCENARIO[Add it to<br/>src/eval/chat-scenarios.json]
+    TRACE --> SCENARIO[Add it to<br/>backend/src/eval/chat-scenarios.json]
     SCENARIO --> CHAT[pnpm eval:chat<br/>PASS, FAIL or MANUAL against the live API,<br/>any retrieval mode]
     CHAT --> FIX[Fix the prompt, a guard,<br/>retrieval or config]
     FIX --> CHAT
 
-    GOLD[Your labelled questions, answerable and not<br/>template: src/eval/golden.example.json] --> RETR[pnpm eval:retrieval<br/>sweeps the cutoffs]
+    GOLD[Your labelled questions, answerable and not<br/>template: backend/src/eval/golden.example.json] --> RETR[pnpm eval:retrieval<br/>sweeps the cutoffs]
     RETR --> RECOMMEND[Recommends RERANK_MIN_SCORE<br/>and RERANK_REJECT_BELOW]
     RECOMMEND --> ENV[.env]
     ENV --> CHAT
@@ -244,7 +260,7 @@ flowchart LR
 
 ## Chat regression suite
 
-Every question that ever failed in front of a user belongs in `src/eval/chat-scenarios.json` as a scenario with expectations (status, reason, enforcement layer, patterns the answer must or must not match, phrases the cited evidence must contain). With the API running:
+Every question that ever failed in front of a user belongs in `backend/src/eval/chat-scenarios.json` as a scenario with expectations (status, reason, enforcement layer, patterns the answer must or must not match, phrases the cited evidence must contain). With the API running:
 
 ```bash
 pnpm eval:chat            # PASS / FAIL / MANUAL per scenario, exit code 1 on any FAIL
@@ -256,7 +272,7 @@ Set `CHAT_TEMPERATURE=0` for repeatable runs. The checks are deliberately lenien
 
 Search drops weak matches (and the chatbot refuses when nothing is left) using a reranker score cutoff, `RERANK_MIN_SCORE`. The right value depends on your corpus and the questions people ask, so it is a setting, not a constant, and it should not be tuned by eyeballing a few documents. Calibrate it against a labelled question set:
 
-1. Write a golden set of real questions, including ones the documents cannot answer (see `src/eval/golden.example.json`):
+1. Write a golden set of real questions, including ones the documents cannot answer (see `backend/src/eval/golden.example.json`):
    `{ "query": "...", "answerable": true, "expectedPhrases": ["five business days"] }`
    `expectedPhrases` are phrases the retrieved evidence must contain, so a hit means the chunk that actually answers the question was found. (`expectedDocs` only checks the document, which any chunk of it satisfies.)
 2. Run `pnpm eval:retrieval path/to/golden.json`. It shows, for each cutoff, how many answerable questions are still answered and how many unanswerable ones are rejected, lists the questions the current setting gets wrong, and suggests the highest cutoff that keeps at least 95% of answerable questions (`--target` changes this).
@@ -269,14 +285,14 @@ The default (`0`) is strict on purpose: until you calibrate, the system prefers 
 A PDF's plain text layer comes out in drawing order, not reading order: a spec table's cells arrive scrambled and multi-column bullet lists are interleaved, so neither search nor the chat model can read them. A layout-aware parser converts each page to Markdown with real tables, headings and column order instead.
 
 ```bash
-pnpm layout:setup     # once: a Python 3.12 environment in .venv-layout with Docling (needs uv)
+pnpm layout:setup     # once: a Python 3.12 environment in backend/.venv-layout with Docling (needs uv)
 # then in .env:
 #   PDF_LAYOUT_ENGINE=docling
-#   PDF_LAYOUT_PYTHON=.venv-layout/bin/python
+#   PDF_LAYOUT_PYTHON=.venv-layout/bin/python   (relative to backend/)
 pnpm ingest           # changing the engine re-reads every PDF
 ```
 
-The parser runs as a subprocess of `scripts/pdf_to_markdown.py` (no shell, with a timeout), and if it is missing or fails the pipeline falls back to the plain text layer. Scanned pages with no text still go to the OCR agent, so Docling's own OCR is switched off (it is what makes it take minutes a page).
+The parser runs as a subprocess of `backend/scripts/pdf_to_markdown.py` (no shell, with a timeout), and if it is missing or fails the pipeline falls back to the plain text layer. Scanned pages with no text still go to the OCR agent, so Docling's own OCR is switched off (it is what makes it take minutes a page).
 
 | Engine | Licence | Measured here (11-page brochure, Apple silicon CPU) |
 | --- | --- | --- |
@@ -288,7 +304,7 @@ On the Seltos brochure, the question "how many variants does the Seltos have?" f
 
 ## Adding a format
 
-Add a file to `src/ingestion/agents/` that default-exports `{ name, description, accepts, process(filePath) }`. It is discovered on the next run; nothing else needs editing. The contract is documented at the top of `agents/markdown.js`.
+Add a file to `backend/src/ingestion/agents/` that default-exports `{ name, description, accepts, process(filePath) }`. It is discovered on the next run; nothing else needs editing. The contract is documented at the top of `agents/markdown.js`.
 
 ## Logging
 
@@ -312,7 +328,7 @@ Settings live in `.env`, which is git-ignored. Create it with `cp .env.example .
 
 | Variable | Used by | Default |
 | --- | --- | --- |
-| `DOCS_DIR`, `DB_PATH` | ingest, server | `src/docs`, `src/docs.db` |
+| `DOCS_DIR`, `DB_PATH` | ingest, server | `backend/src/docs`, `backend/src/docs.db` |
 | `OCR_BASE_URL`, `OCR_MODEL`, `OCR_PROMPT`, `OCR_API_KEY` | OCR agent | `http://localhost:8000/v1`, `baidu/Unlimited-OCR`, `document parsing.`, unset |
 | `OCR_ENABLED` | OCR agent. `false` uses the text layer for every page | `true` |
 | `OCR_TIMEOUT_MS` | OCR agent, per page | `300000` |

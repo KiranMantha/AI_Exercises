@@ -21,6 +21,7 @@ const RATE_LIMIT_PER_MINUTE = Number(process.env.CHAT_RATE_LIMIT_PER_MIN ?? 30);
 const WEB_DIST = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
+  "..",
   "web",
   "dist",
 );
