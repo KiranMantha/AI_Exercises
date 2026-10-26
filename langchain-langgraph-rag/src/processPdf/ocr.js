@@ -1,8 +1,8 @@
+import { OCR_PROMPT } from "../systemPrompts/index.js";
 // Client for any OpenAI-compatible server hosting Unlimited-OCR
 // (vLLM, llama.cpp server, Ollama's /v1 endpoint).
 const BASE_URL = process.env.OCR_BASE_URL ?? "http://localhost:8000/v1";
 const MODEL = process.env.OCR_MODEL ?? "baidu/Unlimited-OCR";
-const PROMPT = process.env.OCR_PROMPT ?? "document parsing.";
 const TIMEOUT_MS = Number(process.env.OCR_TIMEOUT_MS ?? 300_000);
 
 export async function ocrImage(pageImage) {
@@ -27,7 +27,7 @@ export async function ocrImage(pageImage) {
                 url: `data:image/png;base64,${Buffer.from(pageImage).toString("base64")}`,
               },
             },
-            { type: "text", text: PROMPT },
+            { type: "text", text: OCR_PROMPT },
           ],
         },
       ],

@@ -1,6 +1,11 @@
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
 const MAX_CHARS = 800;
+// A table is one unit of meaning: split across chunks, the rows lose the
+// column headers that say what each cell is. So a table stays whole up to this
+// size (an embedding model sees only the start of it, but keyword search, the
+// reranker and the chat model read all of it) and only larger ones are split.
+const MAX_TABLE_CHARS = Number(process.env.CHUNK_MAX_TABLE_CHARS ?? 3000);
 const MIN_CHARS = 150; // a section smaller than this is merged with the next
 const OVERLAP = 100; // only used inside a single oversized paragraph
 
@@ -8,6 +13,45 @@ const FENCE = /^\s*(```|~~~)/;
 const HEADING = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
 const TABLE_ROW = /^\s*\|/;
 const MATH_OPEN = /^\s*(\$\$|\\\[)/;
+
+const MARKED = /^(•|●|✓|✔|✅|x|yes|y)$/i;
+const UNMARKED = /^(-|–|—|✗|✘|no|n\/a)?$/i;
+
+const tableCells = (row) =>
+  row
+    .trim()
+    .replace(/^\||\|$/g, "")
+    .split("|")
+    .map((cell) => cell.trim());
+
+// A matrix table (rows x columns, cells just marked or unmarked) is nearly
+// all symbols, so neither embeddings nor keyword search can match it to a
+// question. A plain-language digest, stated once per table and generated
+// from its own cells, makes it findable: how many columns there are, and
+// for each row which columns are marked.
+export function describeMatrix(table) {
+  const [headerRow, , ...bodyRows] = table.split("\n").filter((line) => TABLE_ROW.test(line));
+  if (!headerRow || !bodyRows.length) return "";
+  const columns = tableCells(headerRow).slice(1);
+  const sentences = [];
+  for (const row of bodyRows) {
+    const [label, ...cells] = tableCells(row);
+    if (!label || cells.length !== columns.length) continue;
+    if (!cells.every((cell) => MARKED.test(cell) || UNMARKED.test(cell))) continue;
+    const marked = columns.filter((_, index) => MARKED.test(cells[index]));
+    sentences.push(`${label}: ${marked.length ? marked.join(", ") : "none"}.`);
+  }
+  if (!sentences.length) return "";
+  return [`Summary of the table above, ${columns.length} columns: ${columns.join(", ")}.`, ...sentences.map((sentence) => `Marked columns for ${sentence}`)].join("\n");
+}
+
+// The digest goes after the table (measured: putting it first ranked worse), only while the whole thing still fits as one
+// chunk; a table that will be split by rows is left as it is.
+function withDigest(table) {
+  const digest = describeMatrix(table);
+  const combined = digest ? `${table}\n\n${digest}` : table;
+  return combined.length <= MAX_TABLE_CHARS ? combined : table;
+}
 
 // Split text into blocks. Code, math and tables are atomic: chunking never
 // cuts through them unless one is bigger than a whole chunk.
@@ -53,7 +97,7 @@ function parseBlocks(text, meta) {
       flushPara();
       const body = [line];
       while (lineIndex + 1 < lines.length && TABLE_ROW.test(lines[lineIndex + 1])) body.push(lines[++lineIndex]);
-      blocks.push({ ...meta, type: "table", text: body.join("\n") });
+      blocks.push({ ...meta, type: "table", text: withDigest(body.join("\n")) });
     } else if (heading) {
       flushPara();
       blocks.push({
@@ -182,7 +226,11 @@ export async function chunkDocument(sections) {
       parts = [];
       size = 0;
       const pieces =
-        block.type === "paragraph" ? await splitter.splitText(block.text) : splitOversized(block);
+        block.type === "paragraph"
+          ? await splitter.splitText(block.text)
+          : block.type === "table" && block.text.length <= MAX_TABLE_CHARS
+            ? [block.text]
+            : splitOversized(block);
       pieces.forEach((piece, index) => {
         const withLead = index === 0 && lead.length;
         emit(

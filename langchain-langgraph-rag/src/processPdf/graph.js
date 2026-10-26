@@ -1,13 +1,24 @@
+import { createLogger, elapsedMs } from "../logger.js";
 import fs from "node:fs";
 import { Annotation, Send, StateGraph, START, END } from "@langchain/langgraph";
 import { extractText, getDocumentProxy, renderPageAsImage } from "unpdf";
 import { imageCoverage, mathRatio } from "./analyze.js";
 import { ocrImage } from "./ocr.js";
+import { routePage } from "./routePage.js";
+import { layoutEngine, parseLayout } from "./layoutParser.js";
 
-// A page goes to the OCR agent when its text layer can't be trusted.
-const MIN_CHARS = Number(process.env.PDF_MIN_CHARS ?? 50); // scanned page
-const MAX_IMAGE_COVERAGE = Number(process.env.PDF_MAX_IMAGE_COVERAGE ?? 0.2);
-const MAX_MATH_RATIO = Number(process.env.PDF_MAX_MATH_RATIO ?? 0.02);
+const log = createLogger("ingestion");
+
+// A page goes to the OCR agent when its text layer can't be trusted (see
+// routePage.js). PDF_OCR_IMAGE_COVERAGE is opt-in: unset, images never trigger
+// OCR on their own.
+const THRESHOLDS = {
+  minChars: Number(process.env.PDF_MIN_CHARS ?? 50),
+  maxMathRatio: Number(process.env.PDF_MAX_MATH_RATIO ?? 0.02),
+  imageCoverage: process.env.PDF_OCR_IMAGE_COVERAGE
+    ? Number(process.env.PDF_OCR_IMAGE_COVERAGE)
+    : undefined,
+};
 const RENDER_SCALE = Number(process.env.PDF_RENDER_SCALE ?? 2);
 const OCR_ENABLED = process.env.OCR_ENABLED !== "false";
 
@@ -21,26 +32,41 @@ const PdfState = Annotation.Root({
 const openPdf = (path) =>
   getDocumentProxy(new Uint8Array(fs.readFileSync(path)));
 
-function routeFor({ chars, coverage, math }) {
-  if (chars < MIN_CHARS) return { route: "ocr", reason: "no text layer" };
-  if (coverage >= MAX_IMAGE_COVERAGE)
-    return { route: "ocr", reason: `images cover ${(coverage * 100).toFixed(0)}%` };
-  if (math >= MAX_MATH_RATIO)
-    return { route: "ocr", reason: "formula glyphs in text layer" };
-  return { route: "text", reason: "clean text layer" };
+// Page text from the layout-aware parser when one is configured (tables stay
+// tables, columns stay in order), else null so the raw text layer is used.
+async function layoutPages(path, pageCount) {
+  if (!layoutEngine()) return null;
+  const startedAt = performance.now();
+  try {
+    const pages = await parseLayout(path);
+    if (pages.length === pageCount) {
+      log.info("pdf.layout_parsed", { engine: layoutEngine(), pages: pages.length, duration_ms: elapsedMs(startedAt) });
+      return pages;
+    }
+    log.warn("pdf.layout_fallback", { reason: "page_count_mismatch", layout_pages: pages.length, pdf_pages: pageCount });
+  } catch (error) {
+    log.warn("pdf.layout_fallback", { reason: "parser_failed", engine: layoutEngine(), error });
+  }
+  return null;
 }
 
 // Inspect every page and decide which agent handles it.
 const classifyNode = async (state) => {
   const pdf = await openPdf(state.path);
   const { text } = await extractText(pdf, { mergePages: false });
+  const layout = await layoutPages(state.path, pdf.numPages);
   const pages = [];
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-    const layer = text[pageNumber - 1].trim();
-    const coverage = await imageCoverage(await pdf.getPage(pageNumber));
+    const layer = (layout?.[pageNumber - 1] ?? text[pageNumber - 1]).trim();
+    // Image coverage costs a pass over the page's drawing operations, so only
+    // measure it when a rule uses it.
+    const coverage =
+      THRESHOLDS.imageCoverage === undefined
+        ? 0
+        : await imageCoverage(await pdf.getPage(pageNumber));
     const math = mathRatio(layer);
-    const decision = routeFor({ chars: layer.length, coverage, math });
-    pages.push({ page: pageNumber, layer, coverage, math, ...decision });
+    const decision = routePage({ chars: layer.length, coverage, math }, THRESHOLDS);
+    pages.push({ page: pageNumber, layer, coverage, math, from: layout ? "layout" : "text", ...decision });
   }
   return { pages };
 };
@@ -62,7 +88,7 @@ const routePages = (state) => {
 const textAgent = (state) => ({
   extracted: state.pages.map((pageInfo) => ({
     page: pageInfo.page,
-    agent: "text",
+    agent: pageInfo.from === "layout" ? "layout" : "text",
     text: pageInfo.layer,
   })),
 });
@@ -71,7 +97,7 @@ const ocrAgent = async (state) => {
   const targets = state.pages;
 
   if (!OCR_ENABLED) {
-    console.error(`OCR disabled: using text layer for ${targets.length} page(s)`);
+    log.warn("pdf.ocr_disabled", { pages: targets.length });
     return {
       extracted: targets.map((pageInfo) => ({
         page: pageInfo.page,
@@ -93,7 +119,7 @@ const ocrAgent = async (state) => {
       extracted.push({ page: pageInfo.page, agent: "ocr", text: await ocrImage(pageImage) });
     } catch (err) {
       // Better a possibly incomplete text layer than a hole in the index.
-      console.error(`OCR failed on page ${pageInfo.page}, using text layer: ${err.message}`);
+      log.warn("pdf.ocr_failed", { page: pageInfo.page, error: err });
       extracted.push({ page: pageInfo.page, agent: "text-fallback", text: pageInfo.layer });
     }
   }
