@@ -26,18 +26,18 @@ const agents = await loadAgents();
 // cached per extension. Extensionless files are decided on content, so they
 // are never cached.
 async function routeDocument(state) {
-  const ext = path.extname(state.filePath).toLowerCase();
-  const matches = agents.filter((agent) => agent.accepts.includes(ext));
+  const extension = path.extname(state.filePath).toLowerCase();
+  const matches = agents.filter((agent) => agent.accepts.includes(extension));
   if (matches.length === 1) return matches[0].name;
 
   const candidates = matches.length ? matches : agents;
-  const key = routeKey(ext, candidates);
-  const cached = ext ? routeCache.get(key) : undefined;
+  const key = routeKey(extension, candidates);
+  const cached = extension ? routeCache.get(key) : undefined;
   if (cached) return cached === "none" ? "skip" : cached;
 
   try {
     const choice = await chooseAgentWithLLM(state.filePath, candidates);
-    if (ext) routeCache.set(key, ext, choice);
+    if (extension) routeCache.set(key, extension, choice);
     return choice === "none" ? "skip" : choice;
   } catch (err) {
     console.error(

@@ -12,12 +12,13 @@ const TIMEOUT_MS = Number(process.env.ROUTER_TIMEOUT_MS ?? 60_000);
 const SAMPLE_BYTES = 500;
 
 function sampleOf(filePath) {
-  const buf = Buffer.alloc(SAMPLE_BYTES);
-  const fd = fs.openSync(filePath, "r");
-  const n = fs.readSync(fd, buf, 0, SAMPLE_BYTES, 0);
-  fs.closeSync(fd);
+  const buffer = Buffer.alloc(SAMPLE_BYTES);
+  const fileDescriptor = fs.openSync(filePath, "r");
+  const bytesRead = fs.readSync(fileDescriptor, buffer, 0, SAMPLE_BYTES, 0);
+  fs.closeSync(fileDescriptor);
+  const sample = buffer.subarray(0, bytesRead);
   // Binary files have nothing useful to show the model.
-  return buf.subarray(0, n).includes(0) ? "(binary)" : buf.subarray(0, n).toString("utf8");
+  return sample.includes(0) ? "(binary)" : sample.toString("utf8");
 }
 
 // Returns the chosen agent name, or "none".
@@ -26,7 +27,7 @@ export async function chooseAgentWithLLM(filePath, agents) {
     throw new Error("ROUTER_BASE_URL and ROUTER_MODEL must both be set");
   const names = [...agents.map((agent) => agent.name), "none"];
 
-  const res = await fetch(`${BASE_URL}/chat/completions`, {
+  const response = await fetch(`${BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -57,9 +58,9 @@ export async function chooseAgentWithLLM(filePath, agents) {
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  if (!res.ok) throw new Error(`router LLM ${res.status}: ${await res.text()}`);
+  if (!response.ok) throw new Error(`router LLM ${response.status}: ${await response.text()}`);
 
-  const { choices } = await res.json();
+  const { choices } = await response.json();
   const { agent, reason } = JSON.parse(choices[0].message.content);
   if (!names.includes(agent)) throw new Error(`router LLM returned unknown agent "${agent}"`);
   console.error(`LLM router: ${path.basename(filePath)} -> ${agent} (${reason})`);

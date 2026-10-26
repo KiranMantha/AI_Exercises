@@ -5,10 +5,10 @@ import { db } from "../rag.js";
 // extension costs one model call, not one per file. The key covers the
 // candidate agents' names and descriptions, so editing an agent (or adding
 // one) invalidates the decision automatically.
-export function routeKey(ext, candidates) {
+export function routeKey(extension, candidates) {
   return crypto
     .createHash("sha256")
-    .update(JSON.stringify([ext, candidates.map((agent) => [agent.name, agent.description])]))
+    .update(JSON.stringify([extension, candidates.map((agent) => [agent.name, agent.description])]))
     .digest("hex");
 }
 
@@ -21,5 +21,5 @@ const setStmt = db.prepare(`
 
 export const routeCache = {
   get: (key) => getStmt.get(key)?.agent,
-  set: (key, ext, agent) => setStmt.run(key, ext, agent, new Date().toISOString()),
+  set: (key, extension, agent) => setStmt.run(key, extension, agent, new Date().toISOString()),
 };

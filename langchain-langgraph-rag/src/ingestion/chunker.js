@@ -14,14 +14,14 @@ const MATH_OPEN = /^\s*(\$\$|\\\[)/;
 function parseBlocks(text, meta) {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const blocks = [];
-  let para = [];
+  let paragraphLines = [];
   const flushPara = () => {
-    if (para.length) blocks.push({ ...meta, type: "paragraph", text: para.join("\n") });
-    para = [];
+    if (paragraphLines.length) blocks.push({ ...meta, type: "paragraph", text: paragraphLines.join("\n") });
+    paragraphLines = [];
   };
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
     const fence = line.match(FENCE);
     const math = line.match(MATH_OPEN);
     const heading = line.match(HEADING);
@@ -29,9 +29,9 @@ function parseBlocks(text, meta) {
     if (fence) {
       flushPara();
       const body = [line];
-      while (++i < lines.length) {
-        body.push(lines[i]);
-        if (lines[i].trim().startsWith(fence[1])) break;
+      while (++lineIndex < lines.length) {
+        body.push(lines[lineIndex]);
+        if (lines[lineIndex].trim().startsWith(fence[1])) break;
       }
       blocks.push({ ...meta, type: "code", text: body.join("\n") });
     } else if (math) {
@@ -39,20 +39,20 @@ function parseBlocks(text, meta) {
       const close = math[1] === "$$" ? "$$" : "\\]";
       const body = [line];
       const closedOnSameLine = line.trim().length > 2 && line.trim().endsWith(close);
-      while (!closedOnSameLine && ++i < lines.length) {
-        body.push(lines[i]);
-        if (lines[i].includes(close)) break;
+      while (!closedOnSameLine && ++lineIndex < lines.length) {
+        body.push(lines[lineIndex]);
+        if (lines[lineIndex].includes(close)) break;
       }
       blocks.push({ ...meta, type: "math", text: body.join("\n") });
     } else if (/^\s*<table/i.test(line)) {
       flushPara();
       const body = [line];
-      while (!/<\/table>/i.test(lines[i]) && ++i < lines.length) body.push(lines[i]);
+      while (!/<\/table>/i.test(lines[lineIndex]) && ++lineIndex < lines.length) body.push(lines[lineIndex]);
       blocks.push({ ...meta, type: "table", text: body.join("\n") });
     } else if (TABLE_ROW.test(line)) {
       flushPara();
       const body = [line];
-      while (i + 1 < lines.length && TABLE_ROW.test(lines[i + 1])) body.push(lines[++i]);
+      while (lineIndex + 1 < lines.length && TABLE_ROW.test(lines[lineIndex + 1])) body.push(lines[++lineIndex]);
       blocks.push({ ...meta, type: "table", text: body.join("\n") });
     } else if (heading) {
       flushPara();
@@ -66,7 +66,7 @@ function parseBlocks(text, meta) {
     } else if (!line.trim()) {
       flushPara();
     } else {
-      para.push(line);
+      paragraphLines.push(line);
     }
   }
   flushPara();
@@ -97,12 +97,12 @@ function splitOversized(block) {
     const close = lines.at(-1);
     const pieces = [];
     let current = [];
-    for (const l of lines.slice(1, -1)) {
-      if (current.length && current.join("\n").length + l.length > MAX_CHARS) {
+    for (const codeLine of lines.slice(1, -1)) {
+      if (current.length && current.join("\n").length + codeLine.length > MAX_CHARS) {
         pieces.push([open, ...current, close].join("\n"));
         current = [];
       }
-      current.push(l);
+      current.push(codeLine);
     }
     if (current.length) pieces.push([open, ...current, close].join("\n"));
     return pieces;

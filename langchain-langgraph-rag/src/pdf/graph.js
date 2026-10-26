@@ -35,12 +35,12 @@ const classifyNode = async (state) => {
   const pdf = await openPdf(state.path);
   const { text } = await extractText(pdf, { mergePages: false });
   const pages = [];
-  for (let n = 1; n <= pdf.numPages; n++) {
-    const layer = text[n - 1].trim();
-    const coverage = await imageCoverage(await pdf.getPage(n));
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const layer = text[pageNumber - 1].trim();
+    const coverage = await imageCoverage(await pdf.getPage(pageNumber));
     const math = mathRatio(layer);
     const decision = routeFor({ chars: layer.length, coverage, math });
-    pages.push({ page: n, layer, coverage, math, ...decision });
+    pages.push({ page: pageNumber, layer, coverage, math, ...decision });
   }
   return { pages };
 };
@@ -84,17 +84,17 @@ const ocrAgent = async (state) => {
   const pdf = await openPdf(state.path);
   const extracted = [];
   // Sequential: the OCR model is the bottleneck and usually single-GPU.
-  for (const p of targets) {
+  for (const pageInfo of targets) {
     try {
-      const png = await renderPageAsImage(pdf, p.page, {
+      const pageImage = await renderPageAsImage(pdf, pageInfo.page, {
         canvasImport: () => import("@napi-rs/canvas"),
         scale: RENDER_SCALE,
       });
-      extracted.push({ page: p.page, agent: "ocr", text: await ocrImage(png) });
+      extracted.push({ page: pageInfo.page, agent: "ocr", text: await ocrImage(pageImage) });
     } catch (err) {
       // Better a possibly incomplete text layer than a hole in the index.
-      console.error(`OCR failed on page ${p.page}, using text layer: ${err.message}`);
-      extracted.push({ page: p.page, agent: "text-fallback", text: p.layer });
+      console.error(`OCR failed on page ${pageInfo.page}, using text layer: ${err.message}`);
+      extracted.push({ page: pageInfo.page, agent: "text-fallback", text: pageInfo.layer });
     }
   }
   return { extracted };
@@ -118,6 +118,6 @@ const pdfGraph = new StateGraph(PdfState)
 
 // Returns [{ page, agent, text }] in page order, plus the routing decisions.
 export async function parsePdf(path) {
-  const out = await pdfGraph.invoke({ path });
-  return { pages: out.result, routing: out.pages };
+  const output = await pdfGraph.invoke({ path });
+  return { pages: output.result, routing: output.pages };
 }

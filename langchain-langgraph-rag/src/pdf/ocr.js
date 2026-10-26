@@ -5,8 +5,8 @@ const MODEL = process.env.OCR_MODEL ?? "baidu/Unlimited-OCR";
 const PROMPT = process.env.OCR_PROMPT ?? "document parsing.";
 const TIMEOUT_MS = Number(process.env.OCR_TIMEOUT_MS ?? 300_000);
 
-export async function ocrImage(png) {
-  const res = await fetch(`${BASE_URL}/chat/completions`, {
+export async function ocrImage(pageImage) {
+  const response = await fetch(`${BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -24,7 +24,7 @@ export async function ocrImage(png) {
             {
               type: "image_url",
               image_url: {
-                url: `data:image/png;base64,${Buffer.from(png).toString("base64")}`,
+                url: `data:image/png;base64,${Buffer.from(pageImage).toString("base64")}`,
               },
             },
             { type: "text", text: PROMPT },
@@ -34,7 +34,7 @@ export async function ocrImage(png) {
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  if (!res.ok) throw new Error(`OCR server ${res.status}: ${await res.text()}`);
-  const data = await res.json();
+  if (!response.ok) throw new Error(`OCR server ${response.status}: ${await response.text()}`);
+  const data = await response.json();
   return data.choices[0].message.content.trim();
 }

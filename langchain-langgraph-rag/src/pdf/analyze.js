@@ -12,14 +12,14 @@ export function mathRatio(text) {
 }
 
 // Multiply two PDF affine matrices (row-vector convention, as pdf.js uses).
-function multiply(m, n) {
+function multiply(matrix, other) {
   return [
-    m[0] * n[0] + m[1] * n[2],
-    m[0] * n[1] + m[1] * n[3],
-    m[2] * n[0] + m[3] * n[2],
-    m[2] * n[1] + m[3] * n[3],
-    m[4] * n[0] + m[5] * n[2] + n[4],
-    m[4] * n[1] + m[5] * n[3] + n[5],
+    matrix[0] * other[0] + matrix[1] * other[2],
+    matrix[0] * other[1] + matrix[1] * other[3],
+    matrix[2] * other[0] + matrix[3] * other[2],
+    matrix[2] * other[1] + matrix[3] * other[3],
+    matrix[4] * other[0] + matrix[5] * other[2] + other[4],
+    matrix[4] * other[1] + matrix[5] * other[3] + other[5],
   ];
 }
 
@@ -33,21 +33,21 @@ export async function imageCoverage(page) {
   const pageArea = (x1 - x0) * (y1 - y0);
   if (pageArea <= 0) return 0;
 
-  let ctm = [1, 0, 0, 1, 0, 0];
+  let currentMatrix = [1, 0, 0, 1, 0, 0];
   const stack = [];
   let covered = 0;
 
   fnArray.forEach((opCode, index) => {
-    if (opCode === OPS.save) stack.push(ctm);
-    else if (opCode === OPS.restore) ctm = stack.pop() ?? ctm;
-    else if (opCode === OPS.transform) ctm = multiply(argsArray[index], ctm);
+    if (opCode === OPS.save) stack.push(currentMatrix);
+    else if (opCode === OPS.restore) currentMatrix = stack.pop() ?? currentMatrix;
+    else if (opCode === OPS.transform) currentMatrix = multiply(argsArray[index], currentMatrix);
     else if (
       opCode === OPS.paintImageXObject ||
       opCode === OPS.paintInlineImageXObject ||
       opCode === OPS.paintImageMaskXObject
     ) {
       // Images are drawn into the unit square, so |det| is the area.
-      covered += Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2]);
+      covered += Math.abs(currentMatrix[0] * currentMatrix[3] - currentMatrix[1] * currentMatrix[2]);
     }
   });
 

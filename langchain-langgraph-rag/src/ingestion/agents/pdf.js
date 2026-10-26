@@ -9,8 +9,8 @@ export default {
   async process(filePath) {
     const file = path.basename(filePath);
     const { pages, routing } = await parsePdf(filePath);
-    for (const r of routing)
-      console.error(`${file} p${r.page}: ${r.route} (${r.reason})`);
+    for (const pageRouting of routing)
+      console.error(`${file} p${pageRouting.page}: ${pageRouting.route} (${pageRouting.reason})`);
     return pages.map((parsedPage) => ({
       text: parsedPage.text,
       page: parsedPage.page,
