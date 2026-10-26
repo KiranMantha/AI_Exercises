@@ -34,7 +34,7 @@ server.registerTool(
     const text = results
       .map(
         (r, i) =>
-          `[${i + 1}] ${r.source} (score ${r.score.toFixed(2)})\n${r.text}`,
+          `[${i + 1}] ${r.source}${r.section ? ` > ${r.section}` : ""} (score ${r.score.toFixed(2)})\n${r.text}`,
       )
       .join("\n\n---\n\n");
 
