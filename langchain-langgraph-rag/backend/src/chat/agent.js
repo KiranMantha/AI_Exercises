@@ -6,6 +6,7 @@ import {
   AGENT_PROMPT_VERSION,
   buildAgentSystemPrompt,
   CITATION_REPAIR_MESSAGE,
+  figureRepairMessage,
   REFUSALS,
   TOOL_BUDGET_SPENT_MESSAGE,
   TOOL_LIMIT_REPLY,
@@ -210,17 +211,20 @@ export function createAgentGraph({ mcp, llm, maxRounds = MAX_ROUNDS, maxToolCall
 
   const verify = (state) => {
     if (state.status === "error") return {};
-    const verdict = checkOutput(state.answer, state.sources, { allowGapOpening: asksForJudgment(state.message) });
+    const verdict = checkOutput(state.answer, state.sources, {
+      allowGapOpening: asksForJudgment(state.message),
+      askedText: [...(state.history ?? []).map((turn) => turn.content), state.message].join("\n"),
+    });
     // A correct answer that forgot its citations is worth one retry. Anything
     // that looks like manipulation (invented links, images) is not.
-    const fixable = verdict.detail === "no_citation" || verdict.detail === "bad_citation";
+    const fixable = ["no_citation", "bad_citation", "unsupported_figure"].includes(verdict.detail);
     if (!verdict.ok && fixable && state.sources.length > 0 && state.repairs < 1)
       return {
         repairs: state.repairs + 1,
         repairing: true,
         conversation: [
           { role: "assistant", content: state.answer },
-          { role: "user", content: CITATION_REPAIR_MESSAGE },
+          { role: "user", content: verdict.figures ? figureRepairMessage(verdict.figures) : CITATION_REPAIR_MESSAGE },
         ],
       };
     if (!verdict.ok)

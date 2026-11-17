@@ -1,0 +1,18 @@
+{
+  "name": "ai-product-search",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "index": "node build-index.js",
+    "start": "env-cmd -f .env node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.1",
+    "better-sqlite3": "^13.2.0",
+    "sqlite-vec": "^0.1.9"
+  },
+  "devDependencies": {
+    "env-cmd": "^11.0.0"
+  }
+}

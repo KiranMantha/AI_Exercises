@@ -2,6 +2,8 @@
 // The matching checks on what a user sends in are in input.js. The refusal
 // texts shown when a check fails are in src/systemPrompts/refusals.js.
 
+import { unsupportedFigures } from "./figures.js";
+
 export const NOT_IN_DOCS = "NOT_IN_DOCS";
 
 const REFUSAL_OPENER =
@@ -31,7 +33,8 @@ const IMAGE_PATTERN = /!\[[^\]]*\]\(/;
 // `allowGapOpening` is for questions that ask for something documents do not
 // state (asksForJudgment): there, an answer may open by saying what is missing
 // as long as a cited comparison follows.
-export function checkOutput(answer, results, { allowGapOpening = false } = {}) {
+// `askedText` is the user's question and history: figures the user wrote may be repeated.
+export function checkOutput(answer, results, { allowGapOpening = false, askedText = "" } = {}) {
   const text = (answer ?? "").trim();
   if (!text) return { ok: false, reason: "ungrounded", detail: "empty" };
   // The model declined: the marker anywhere in the reply (it sometimes
@@ -51,6 +54,9 @@ export function checkOutput(answer, results, { allowGapOpening = false } = {}) {
   const contextText = results.map((result) => result.text).join("\n");
   const invented = (text.match(URL_PATTERN) ?? []).filter((url) => !contextText.includes(url));
   if (invented.length) return { ok: false, reason: "ungrounded", detail: "invented_url" };
+
+  const figures = unsupportedFigures(text, results, askedText);
+  if (figures.length) return { ok: false, reason: "ungrounded", detail: "unsupported_figure", figures };
 
   return { ok: true, text, cited: cited.sort((first, second) => first - second) };
 }
