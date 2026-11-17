@@ -401,3 +401,19 @@ test("an invented link is refused without a repair turn", async () => {
   assert.equal(response.reason, "ungrounded");
   assert.equal(calls.length, 1);
 });
+
+test("a wrong figure next to a real citation gets one repair turn naming it", async () => {
+  const { graph, calls } = setupRepair(["Refunds take 19 business days [1].", "Refunds take five business days [1]."]);
+  const response = await runChat(graph, { message: "How long do refunds take?", history: [] });
+  assert.equal(response.status, "answered");
+  assert.equal(response.answer, "Refunds take five business days [1].");
+  assert.match(calls[1].at(-1).content, /do not appear in the sources[^:]*: 19\./);
+});
+
+test("a figure that stays unsupported after the repair is refused", async () => {
+  const { graph, calls } = setupRepair(["Refunds take 12 days [1].", "Refunds take 12 days [1]."]);
+  const response = await runChat(graph, { message: "How long do refunds take?", history: [] });
+  assert.equal(response.reason, "ungrounded");
+  assert.equal(response.enforcementLayer, "output_guard");
+  assert.equal(calls.length, 2);
+});

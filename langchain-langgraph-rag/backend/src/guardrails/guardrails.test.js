@@ -130,9 +130,10 @@ test("cleanAnswer leaves a hash inside text alone", () => {
 test("a fallback answer that says what is missing and then compares what is documented is not a refusal", () => {
   const fallback =
     "The documents do not include prices, so value for money can't be judged. On listed equipment only: the Duster mid variant lists a 360 camera and wireless charging [1], while the Seltos mid variant lists a sunroof [1].";
-  assert.equal(checkOutput(fallback, results, { allowGapOpening: true }).ok, true);
+  const equipment = [{ text: "Duster mid variant: 360 camera, wireless charging. Seltos mid variant: sunroof." }];
+  assert.equal(checkOutput(fallback, equipment, { allowGapOpening: true }).ok, true);
   // Without the flag (an ordinary question) the same opening is a refusal, so the retry still runs.
-  assert.equal(checkOutput(fallback, results).reason, "no_context");
+  assert.equal(checkOutput(fallback, equipment).reason, "no_context");
 });
 
 test("a missing-information sentence with nothing documented after it is still a refusal", () => {
@@ -140,4 +141,49 @@ test("a missing-information sentence with nothing documented after it is still a
     checkOutput("The documents do not include prices. They describe many features [1].", results, { allowGapOpening: true }).reason,
     "no_context",
   );
+});
+
+// --- number check ---------------------------------------------------------------
+
+const specs = [
+  { text: "Engine 1.6L petrol: torque 250 Nm at 2,000 rpm. Price starts at Rs 12,99,000." },
+  { text: "Boot space is 544 litres. Warranty is five years." },
+];
+
+test("figures that the cited sources state pass, however they are formatted", () => {
+  assert.equal(checkOutput("Torque is **250 Nm** [1]. Boot space is 544 L [2].", specs).ok, true);
+  assert.equal(checkOutput("It starts at Rs 1299000 [1], with a 5 year warranty [2].", specs).ok, true);
+  assert.equal(checkOutput("It starts at Rs 12,99,000 [1].", specs).ok, true);
+});
+
+test("a figure that no cited source states is refused with the figures named", () => {
+  const verdict = checkOutput("Torque is 280 Nm [1].", specs);
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.detail, "unsupported_figure");
+  assert.deepEqual(verdict.figures, ["280"]);
+});
+
+test("a figure is checked against the source its own sentence cites", () => {
+  // 544 is in source 2 but the sentence cites source 1.
+  assert.equal(checkOutput("Boot space is 544 L [1].", specs).detail, "unsupported_figure");
+  assert.equal(checkOutput("Torque is 250 Nm [1]. Boot space is 544 L [2].", specs).ok, true);
+});
+
+test("a sentence with no citation of its own is checked against every cited source", () => {
+  assert.equal(checkOutput("Torque is 250 Nm and boot space is 544 L [1][2].", specs).ok, true);
+  assert.equal(checkOutput("Torque is 251 Nm and boot space is 544 L [1][2].", specs).detail, "unsupported_figure");
+});
+
+test("figures the user wrote may be repeated, and small counts are not checked", () => {
+  const withQuestion = (answer) => checkOutput(answer, specs, { askedText: "Is 700 Nm available?" });
+  assert.equal(withQuestion("No, the sources list 250 Nm [1].").ok, true);
+  assert.equal(withQuestion("No, 700 Nm is not listed; the sources list 250 Nm [1].").ok, true);
+  assert.equal(checkOutput("There are 3 figures: 250 Nm [1].", specs).ok, true);
+  // ...but a small number with a unit attached is a spec, so it is checked.
+  assert.equal(checkOutput("Engine is 2.0L [1].", specs).detail, "unsupported_figure");
+});
+
+test("decimals are not split, and dates and versions are read part by part", () => {
+  assert.equal(checkOutput("The engine is 1.6L [1].", specs).ok, true);
+  assert.equal(checkOutput("The engine is 1.7L [1].", specs).detail, "unsupported_figure");
 });

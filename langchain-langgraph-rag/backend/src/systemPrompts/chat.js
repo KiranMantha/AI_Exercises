@@ -21,13 +21,19 @@ Output contract (chat window, short and direct):
 
 // Bump when any prompt below changes, so logs and regression runs can be tied
 // to the prompt that produced them.
-export const PROMPT_VERSION = "chat-v5";
+export const PROMPT_VERSION = "chat-v6";
 
 // Sent once when an answer is otherwise fine but its citations are missing or
 // point at sources that do not exist.
 export const CITATION_REPAIR_MESSAGE =
   "Your answer needs citations. Rewrite it, putting the source number in square brackets after each claim, " +
   "using only numbers that appear in the sources above. Remove any claim the sources do not support. " +
+  "If the sources do not answer the question, reply NOT_IN_DOCS.";
+
+// Sent once when an answer states figures that the sources it cites do not.
+export const figureRepairMessage = (figures) =>
+  `These figures do not appear in the sources you cited: ${figures.join(", ")}. Rewrite the answer using only figures ` +
+  "stated in the sources, each cited with the source it comes from. Drop any claim you cannot support. " +
   "If the sources do not answer the question, reply NOT_IN_DOCS.";
 
 // Sources are numbered so the model can cite them and the checks can verify

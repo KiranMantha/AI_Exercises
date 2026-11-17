@@ -1,0 +1,14 @@
+{
+  "name": "legacy-migration-agents",
+  "version": "1.0.0",
+  "description": "Local multi-agent JS-to-TypeScript migration (phase 1: LLM client + websearch agent)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "ask": "node src/index.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "license": "ISC"
+}
